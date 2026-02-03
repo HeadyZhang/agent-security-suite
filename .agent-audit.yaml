@@ -1,0 +1,15 @@
+# 忽略测试目录中的发现
+ignore:
+  - rule_id: "*"
+    paths:
+      - "tests/**"
+      - "**/test_*"
+      - "**/fixtures/**"
+    reason: "Test fixtures intentionally contain vulnerable patterns"
+
+scan:
+  exclude:
+    - "tests/**"
+    - "venv/**"
+    - ".venv/**"
+    - "__pycache__/**"
