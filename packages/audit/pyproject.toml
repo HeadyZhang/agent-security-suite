@@ -1,30 +1,45 @@
 [tool.poetry]
 name = "agent-audit"
 version = "0.1.0"
-description = "Security scanner for AI agents and MCP configurations"
-authors = ["Agent Security Team"]
+description = "Security scanner for AI agents and MCP configurations - Based on OWASP Agentic Top 10"
+authors = ["Agent Security Team <security@example.com>"]
 license = "MIT"
-readme = "README.md"
+readme = "../../README.md"
+homepage = "https://github.com/HeadyZhang/agent-security-suite"
+repository = "https://github.com/HeadyZhang/agent-security-suite"
+documentation = "https://github.com/HeadyZhang/agent-security-suite#readme"
 packages = [{include = "agent_audit"}]
-keywords = ["ai", "agent", "security", "mcp", "audit"]
+keywords = ["ai", "agent", "security", "mcp", "audit", "owasp", "vulnerability", "scanner"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Security",
     "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
 ]
+
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/HeadyZhang/agent-security-suite/issues"
+"Changelog" = "https://github.com/HeadyZhang/agent-security-suite/releases"
 
 [tool.poetry.scripts]
 agent-audit = "agent_audit.cli.main:cli"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-agent-security-core = {path = "../core", develop = true}
+# For local development, use path dependency:
+# agent-security-core = {path = "../core", develop = true}
+# For PyPI release, use version:
+agent-security-core = "^0.1.0"
 click = "^8.1.0"
 rich = "^13.0.0"
 pydantic = "^2.0"

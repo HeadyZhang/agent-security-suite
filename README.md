@@ -1,22 +1,34 @@
 # Agent Audit
 
-Security scanner for AI agents and MCP configurations. Detects vulnerabilities based on the OWASP Agentic Top 10.
+[![PyPI version](https://badge.fury.io/py/agent-audit.svg)](https://badge.fury.io/py/agent-audit)
+[![Python](https://img.shields.io/pypi/pyversions/agent-audit.svg)](https://pypi.org/project/agent-audit/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/HeadyZhang/agent-security-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/HeadyZhang/agent-security-suite/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/HeadyZhang/agent-security-suite/branch/master/graph/badge.svg)](https://codecov.io/gh/HeadyZhang/agent-security-suite)
 
-## Features
+> 🛡️ Security scanner for AI agents and MCP configurations. Detects vulnerabilities based on the **OWASP Agentic Top 10**.
 
-- **Python AST Scanning**: Detects dangerous patterns like `shell=True`, `eval()`, and tainted input flows
-- **MCP Configuration Scanning**: Validates MCP server configurations for security issues
-- **Secret Detection**: Finds hardcoded credentials (AWS keys, API tokens, private keys)
-- **Runtime MCP Inspection**: Probes MCP servers without executing tools ("Agent Nmap")
-- **Multiple Output Formats**: Terminal, JSON, SARIF (for GitHub Code Scanning), Markdown
+<p align="center">
+  <img src="docs/demo.gif" alt="Agent Audit Demo" width="800">
+</p>
 
-## Installation
+## ✨ Features
+
+- **🔍 Python AST Scanning** - Detects dangerous patterns like `shell=True`, `eval()`, and tainted input flows
+- **⚙️ MCP Configuration Scanning** - Validates MCP server configurations for security issues
+- **🔐 Secret Detection** - Finds hardcoded credentials (AWS keys, API tokens, private keys)
+- **🌐 Runtime MCP Inspection** - Probes MCP servers without executing tools ("Agent Nmap")
+- **📊 Multiple Output Formats** - Terminal, JSON, SARIF (for GitHub Code Scanning), Markdown
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
 pip install agent-audit
 ```
 
-## Quick Start
+### Basic Usage
 
 ```bash
 # Scan current directory
@@ -25,40 +37,60 @@ agent-audit scan .
 # Scan with JSON output
 agent-audit scan ./my-agent --format json
 
-# Scan with SARIF output for GitHub
+# Scan with SARIF output for GitHub Code Scanning
 agent-audit scan . --format sarif --output results.sarif
 
 # Fail CI on critical findings only
 agent-audit scan . --fail-on critical
 
-# Inspect an MCP server
+# Inspect an MCP server at runtime
 agent-audit inspect stdio -- npx -y @modelcontextprotocol/server-filesystem /tmp
 ```
 
-## GitHub Action
+## 🔗 GitHub Action
 
-Add agent-audit to your CI/CD pipeline:
+Add Agent Audit to your CI/CD pipeline with just a few lines:
 
 ```yaml
-- name: Run Agent Audit
-  uses: HeadyZhang/agent-security-suite@v1
-  with:
-    path: './src'
-    fail-on: 'high'
-    upload-sarif: 'true'
+name: Security Scan
+on: [push, pull_request]
+
+jobs:
+  agent-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Agent Audit
+        uses: HeadyZhang/agent-security-suite@v1
+        with:
+          path: '.'
+          fail-on: 'high'
+          upload-sarif: 'true'
 ```
 
-## Detected Issues
+### Action Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `path` | Path to scan | `.` |
+| `format` | Output format: `terminal`, `json`, `sarif`, `markdown` | `sarif` |
+| `severity` | Minimum severity to report: `info`, `low`, `medium`, `high`, `critical` | `low` |
+| `fail-on` | Exit with error if findings at this severity | `high` |
+| `baseline` | Path to baseline file for incremental scanning | - |
+| `upload-sarif` | Upload SARIF to GitHub Security tab | `true` |
+
+## 🎯 Detected Issues
 
 | Rule ID | Title | Severity |
 |---------|-------|----------|
-| AGENT-001 | Command Injection via Unsanitized Input | Critical |
-| AGENT-002 | Excessive Agent Permissions | Medium |
-| AGENT-003 | Potential Data Exfiltration Chain | High |
-| AGENT-004 | Hardcoded Credentials | Critical |
-| AGENT-005 | Unverified MCP Server | High |
+| AGENT-001 | Command Injection via Unsanitized Input | 🔴 Critical |
+| AGENT-002 | Excessive Agent Permissions | 🟡 Medium |
+| AGENT-003 | Potential Data Exfiltration Chain | 🟠 High |
+| AGENT-004 | Hardcoded Credentials | 🔴 Critical |
+| AGENT-005 | Unverified MCP Server | 🟠 High |
 
-## Configuration
+## ⚙️ Configuration
 
 Create a `.agent-audit.yaml` file to customize scanning:
 
@@ -84,7 +116,7 @@ scan:
   fail_on: high
 ```
 
-## Baseline Scanning
+## 📈 Baseline Scanning
 
 Track new findings incrementally:
 
@@ -96,7 +128,7 @@ agent-audit scan . --save-baseline baseline.json
 agent-audit scan . --baseline baseline.json
 ```
 
-## CLI Reference
+## 📖 CLI Reference
 
 ```
 Usage: agent-audit [OPTIONS] COMMAND [ARGS]...
@@ -113,12 +145,14 @@ Options:
   --help      Show this message
 ```
 
-## Development
+## 🛠️ Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ```bash
 # Clone the repository
 git clone https://github.com/HeadyZhang/agent-security-suite
-cd agent-audit
+cd agent-security-suite
 
 # Install dependencies
 cd packages/core && poetry install
@@ -131,6 +165,17 @@ poetry run pytest tests/ -v
 poetry run agent-audit scan .
 ```
 
-## License
+## 📄 License
 
-MIT
+MIT License - see [LICENSE](LICENSE) for details.
+
+## 🙏 Acknowledgments
+
+- Based on the [OWASP Agentic Security Top 10](https://owasp.org/www-project-agentic-security/)
+- Inspired by the need for better AI agent security tooling
+
+---
+
+<p align="center">
+  Made with ❤️ for the AI agent security community
+</p>

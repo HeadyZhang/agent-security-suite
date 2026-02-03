@@ -1,11 +1,32 @@
 [tool.poetry]
 name = "agent-security-core"
 version = "0.1.0"
-description = "Core engine for Agent Security Suite"
-authors = ["Agent Security Team"]
+description = "Core engine for Agent Security Suite - Security scanner for AI agents"
+authors = ["Agent Security Team <security@example.com>"]
 license = "MIT"
 readme = "README.md"
+homepage = "https://github.com/HeadyZhang/agent-security-suite"
+repository = "https://github.com/HeadyZhang/agent-security-suite"
+documentation = "https://github.com/HeadyZhang/agent-security-suite#readme"
 packages = [{include = "agent_core"}]
+keywords = ["ai", "agent", "security", "mcp", "scanning", "owasp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/HeadyZhang/agent-security-suite/issues"
+"Changelog" = "https://github.com/HeadyZhang/agent-security-suite/releases"
 
 [tool.poetry.dependencies]
 python = "^3.9"

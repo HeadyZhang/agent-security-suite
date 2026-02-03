@@ -1,6 +1,6 @@
 name: 'Agent Audit'
-description: 'Security scanner for AI agents and MCP configurations'
-author: 'Agent Audit Team'
+description: 'Security scanner for AI agents and MCP configurations. Detects vulnerabilities based on OWASP Agentic Top 10.'
+author: 'HeadyZhang'
 branding:
   icon: 'shield'
   color: 'purple'

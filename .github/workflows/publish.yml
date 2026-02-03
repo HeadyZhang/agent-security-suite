@@ -1,0 +1,126 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish_core:
+        description: 'Publish agent-security-core'
+        required: true
+        default: 'true'
+        type: boolean
+      publish_audit:
+        description: 'Publish agent-audit'
+        required: true
+        default: 'true'
+        type: boolean
+
+jobs:
+  publish-core:
+    if: github.event_name == 'release' || inputs.publish_core
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # For trusted publishing
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+
+      - name: Build core package
+        working-directory: packages/core
+        run: poetry build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/core/dist/
+
+  publish-audit:
+    if: github.event_name == 'release' || inputs.publish_audit
+    needs: publish-core
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # For trusted publishing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+
+      - name: Wait for core package to be available
+        run: |
+          echo "Waiting for agent-security-core to be available on PyPI..."
+          for i in {1..60}; do
+            if pip index versions agent-security-core 2>/dev/null; then
+              echo "Package is available!"
+              break
+            fi
+            echo "Attempt $i: Package not yet available, waiting..."
+            sleep 10
+          done
+
+      - name: Ensure PyPI dependency is set
+        working-directory: packages/audit
+        run: |
+          # Make sure we're using PyPI dependency, not path
+          sed -i 's|agent-security-core = {path = "../core", develop = true}|agent-security-core = "^0.1.0"|g' pyproject.toml
+          cat pyproject.toml
+
+      - name: Build audit package
+        working-directory: packages/audit
+        run: poetry build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/audit/dist/
+
+  create-github-release-assets:
+    needs: [publish-core, publish-audit]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: Build packages
+        run: |
+          cd packages/core && poetry build
+          cd ../audit && poetry build
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            packages/core/dist/*
+            packages/audit/dist/*
