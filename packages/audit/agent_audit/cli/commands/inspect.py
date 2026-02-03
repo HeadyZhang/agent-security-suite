@@ -40,7 +40,7 @@ def _render_terminal(result: MCPInspectionResult):
     )
     if result.server_version:
         header_text += f" v{result.server_version}"
-    header_text += f"\n"
+    header_text += "\n"
     header_text += f"Status: {status}  |  Response: {result.response_time_ms:.0f}ms\n"
     header_text += f"Risk Score: {result.risk_score:.1f}/10"
 
@@ -123,7 +123,6 @@ def _render_terminal(result: MCPInspectionResult):
             severity = finding.get("severity", "medium")
             color = severity_colors.get(severity, "white")
             desc = finding.get("description", "Unknown issue")
-            finding_type = finding.get("type", "")
             tool_name = finding.get("tool", "")
 
             if tool_name:

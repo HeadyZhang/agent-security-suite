@@ -1,8 +1,7 @@
 """Terminal formatter with Rich output."""
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich.tree import Tree

@@ -1,6 +1,5 @@
 """Scan command implementation."""
 
-import sys
 from pathlib import Path
 from typing import Optional, List
 
@@ -9,18 +8,15 @@ from rich.console import Console
 
 from agent_audit.models.finding import Finding
 from agent_audit.models.risk import Severity
-from agent_audit.rules.engine import RuleEngine, MatchContext
+from agent_audit.rules.engine import RuleEngine
 
 from agent_audit.scanners.python_scanner import PythonScanner
 from agent_audit.scanners.mcp_config_scanner import MCPConfigScanner
 from agent_audit.scanners.secret_scanner import SecretScanner
-from agent_audit.scanners.config_scanner import ConfigScanner
 from agent_audit.config.ignore import (
     IgnoreManager, load_baseline, filter_by_baseline, save_baseline
 )
 from agent_audit.cli.formatters.terminal import format_scan_results
-from agent_audit.cli.formatters.sarif import save_sarif
-from agent_audit.cli.formatters.json import save_json
 
 console = Console()
 
@@ -56,7 +52,6 @@ def run_scan(
     python_scanner = PythonScanner(exclude_patterns=exclude_patterns)
     mcp_scanner = MCPConfigScanner()
     secret_scanner = SecretScanner(exclude_paths=exclude_patterns)
-    config_scanner = ConfigScanner()
 
     # Initialize rule engine
     rule_engine = RuleEngine()
