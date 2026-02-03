@@ -1,0 +1,97 @@
+name: 'Agent Audit'
+description: 'Security scanner for AI agents and MCP configurations'
+author: 'Agent Audit Team'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Path to scan (default: current directory)'
+    required: false
+    default: '.'
+  format:
+    description: 'Output format: terminal, json, sarif, markdown'
+    required: false
+    default: 'sarif'
+  output:
+    description: 'Output file path (required for sarif format)'
+    required: false
+    default: 'agent-audit-results.sarif'
+  severity:
+    description: 'Minimum severity to report: info, low, medium, high, critical'
+    required: false
+    default: 'low'
+  fail-on:
+    description: 'Exit with error if findings at this severity: low, medium, high, critical'
+    required: false
+    default: 'high'
+  baseline:
+    description: 'Path to baseline file for incremental scanning'
+    required: false
+  upload-sarif:
+    description: 'Upload SARIF to GitHub Security tab (true/false)'
+    required: false
+    default: 'true'
+
+outputs:
+  findings-count:
+    description: 'Total number of findings'
+    value: ${{ steps.scan.outputs.findings }}
+  exit-code:
+    description: 'Exit code from the scan (0 = pass, 1 = fail)'
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install agent-audit
+      shell: bash
+      run: |
+        pip install agent-audit
+
+    - name: Run agent-audit scan
+      id: scan
+      shell: bash
+      run: |
+        set +e  # Don't exit on error
+
+        ARGS="${{ inputs.path }}"
+        ARGS="$ARGS --format ${{ inputs.format }}"
+
+        if [ "${{ inputs.format }}" == "sarif" ] || [ -n "${{ inputs.output }}" ]; then
+          ARGS="$ARGS --output ${{ inputs.output }}"
+        fi
+
+        ARGS="$ARGS --severity ${{ inputs.severity }}"
+        ARGS="$ARGS --fail-on ${{ inputs.fail-on }}"
+
+        if [ -n "${{ inputs.baseline }}" ]; then
+          ARGS="$ARGS --baseline ${{ inputs.baseline }}"
+        fi
+
+        agent-audit scan $ARGS
+        EXIT_CODE=$?
+
+        echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+        # Count findings from SARIF if available
+        if [ -f "${{ inputs.output }}" ]; then
+          FINDINGS=$(jq '.runs[0].results | length' "${{ inputs.output }}" 2>/dev/null || echo "0")
+          echo "findings=$FINDINGS" >> $GITHUB_OUTPUT
+        else
+          echo "findings=0" >> $GITHUB_OUTPUT
+        fi
+
+        exit $EXIT_CODE
+
+    - name: Upload SARIF to GitHub Security
+      if: inputs.upload-sarif == 'true' && inputs.format == 'sarif'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.output }}

@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "env": {}
+    },
+    "sqlite": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "./data.db"]
+    },
+    "untrusted-server": {
+      "url": "http://untrusted.example.com:3000/sse",
+      "verified": false
+    },
+    "hardcoded-secret": {
+      "command": "python",
+      "args": ["server.py"],
+      "env": {
+        "API_KEY": "AKIAIOSFODNN7EXAMPLE"
+      }
+    }
+  }
+}

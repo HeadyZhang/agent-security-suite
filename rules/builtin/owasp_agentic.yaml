@@ -1,0 +1,126 @@
+# OWASP Agentic Security Rules
+# Core rules for agent security scanning
+
+rules:
+  - id: AGENT-001
+    title: Command Injection via Unsanitized Input
+    description: Tool accepts user input passed directly to shell execution without proper sanitization.
+    severity: critical
+    category: command_injection
+    cwe_id: CWE-78
+    owasp_id: OWASP-AGENT-02
+
+    detection:
+      patterns:
+        - type: python_ast
+          match:
+            - "subprocess.run"
+            - "subprocess.Popen"
+            - "subprocess.call"
+            - "os.system"
+            - "os.popen"
+            - "eval"
+            - "exec"
+
+        - type: function_call
+          functions:
+            - subprocess.run
+            - subprocess.Popen
+            - subprocess.call
+          arguments:
+            shell: true
+
+    remediation:
+      description: Use shlex.quote() to escape user input, use argument lists instead of shell strings, implement a command allowlist.
+      code_example: |
+        # Safe: use argument list
+        subprocess.run(["ls", shlex.quote(user_input)])
+      references:
+        - https://owasp.org/www-community/attacks/Command_Injection
+
+  - id: AGENT-002
+    title: Excessive Agent Permissions
+    description: Agent is configured with more permissions than necessary for its intended purpose.
+    severity: medium
+    category: excessive_permission
+    cwe_id: CWE-250
+    owasp_id: OWASP-AGENT-01
+
+    detection:
+      conditions:
+        tool_count_threshold: 15
+        high_risk_permission_threshold: 5
+
+    remediation:
+      description: Apply principle of least privilege, split into specialized agents, require approval for high-risk operations.
+      references:
+        - https://owasp.org/www-community/vulnerabilities/Least_Privilege_Violation
+
+  - id: AGENT-003
+    title: Potential Data Exfiltration Chain
+    description: Agent has access to both sensitive data sources and external network capabilities.
+    severity: high
+    category: data_exfiltration
+    cwe_id: CWE-200
+    owasp_id: OWASP-AGENT-05
+
+    detection:
+      operation_chain:
+        source_permissions:
+          - SECRET_ACCESS
+          - FILE_READ
+          - DATABASE_READ
+        target_permissions:
+          - NETWORK_OUTBOUND
+
+    remediation:
+      description: Implement network egress allowlist, add approval workflow for sensitive operations.
+      references:
+        - https://owasp.org/www-community/attacks/Data_Exfiltration
+
+  - id: AGENT-004
+    title: Hardcoded Credentials in Agent Config
+    description: Agent configuration contains hardcoded API keys, passwords, or other secrets.
+    severity: critical
+    category: credential_exposure
+    cwe_id: CWE-798
+    owasp_id: OWASP-AGENT-03
+
+    detection:
+      patterns:
+        - type: regex
+          patterns:
+            - "AKIA[0-9A-Z]{16}"
+            - "sk-[a-zA-Z0-9]{48,}"
+            - "sk-ant-[a-zA-Z0-9-]{40,}"
+            - "ghp_[a-zA-Z0-9]{36}"
+            - "gho_[a-zA-Z0-9]{36}"
+
+    remediation:
+      description: Use environment variables or a secrets manager instead of hardcoded credentials.
+      code_example: |
+        # Safe: use environment variable
+        api_key = os.environ.get("OPENAI_API_KEY")
+      references:
+        - https://cwe.mitre.org/data/definitions/798.html
+
+  - id: AGENT-005
+    title: Unverified MCP Server
+    description: Agent connects to an MCP server that lacks signature verification.
+    severity: high
+    category: supply_chain
+    cwe_id: CWE-494
+    owasp_id: OWASP-AGENT-04
+
+    detection:
+      mcp_server:
+        verified: false
+        trusted_sources:
+          - "docker.io/mcp-catalog/"
+          - "ghcr.io/anthropics/"
+          - "ghcr.io/modelcontextprotocol/"
+
+    remediation:
+      description: Only use MCP servers from trusted registries, enable signature verification.
+      references:
+        - https://modelcontextprotocol.io/docs/security

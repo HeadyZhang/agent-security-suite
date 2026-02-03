@@ -1,0 +1,38 @@
+# Agent Audit Configuration
+# https://github.com/your-org/agent-audit
+
+# Scan settings
+scan:
+  exclude:
+    - "tests/**"
+    - "venv/**"
+    - "node_modules/**"
+    - ".git/**"
+  min_severity: low
+  fail_on: high
+
+# Allowed network hosts (reduces confidence for AGENT-003)
+# Use wildcards: *.internal.company.com
+allowed_hosts:
+  - "*.internal.company.com"
+  - "api.openai.com"
+  - "api.anthropic.com"
+
+# Allowed file paths
+allowed_paths:
+  - "/tmp"
+  - "/app/data"
+
+# Ignore rules
+ignore:
+  # Example: Ignore data exfiltration warnings in auth module
+  # - rule_id: AGENT-003
+  #   paths:
+  #     - "auth/**"
+  #   reason: "Auth module legitimately communicates with auth service"
+
+  # Example: Ignore excessive permissions for admin agent
+  # - rule_id: AGENT-002
+  #   paths:
+  #     - "admin_agent.py"
+  #   reason: "Admin agent requires broad permissions by design"

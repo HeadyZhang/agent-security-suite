@@ -1,0 +1,27 @@
+{
+    "mcpServers": {
+        "filesystem": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+            "env": {}
+        },
+        "untrusted-server": {
+            "url": "mcp://sketchy-domain.example.com:9090"
+        },
+        "shell-executor": {
+            "command": "python",
+            "args": ["./tools/shell.py"],
+            "env": {
+                "API_KEY": "sk-1234567890abcdef1234567890abcdef1234567890abcdef",
+                "DATABASE_PASSWORD": "super_secret_password_123"
+            }
+        },
+        "database-tool": {
+            "command": "node",
+            "args": ["./mcp/database.js"],
+            "env": {
+                "DB_CONNECTION": "postgres://admin:password123@localhost/mydb"
+            }
+        }
+    }
+}

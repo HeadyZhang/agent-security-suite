@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "agent-audit"
+version = "0.1.0"
+description = "Security scanner for AI agents and MCP configurations"
+authors = ["Agent Security Team"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "agent_audit"}]
+keywords = ["ai", "agent", "security", "mcp", "audit"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[tool.poetry.scripts]
+agent-audit = "agent_audit.cli.main:cli"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+agent-security-core = {path = "../core", develop = true}
+click = "^8.1.0"
+rich = "^13.0.0"
+pydantic = "^2.0"
+pyyaml = "^6.0"
+aiohttp = "^3.9"
+aiofiles = "^23.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0"
+pytest-cov = "^4.0"
+pytest-asyncio = "^0.21.0"
+black = "^23.0"
+ruff = "^0.1.0"
+mypy = "^1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
