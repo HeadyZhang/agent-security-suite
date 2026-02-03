@@ -3,8 +3,8 @@
 [![PyPI version](https://badge.fury.io/py/agent-audit.svg)](https://badge.fury.io/py/agent-audit)
 [![Python](https://img.shields.io/pypi/pyversions/agent-audit.svg)](https://pypi.org/project/agent-audit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/HeadyZhang/agent-security-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/HeadyZhang/agent-security-suite/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/HeadyZhang/agent-security-suite/branch/master/graph/badge.svg)](https://codecov.io/gh/HeadyZhang/agent-security-suite)
+[![CI](https://github.com/HeadyZhang/agent-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/HeadyZhang/agent-audit/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/HeadyZhang/agent-audit/branch/master/graph/badge.svg)](https://codecov.io/gh/HeadyZhang/agent-audit)
 
 > 🛡️ Security scanner for AI agents and MCP configurations. Detects vulnerabilities based on the **OWASP Agentic Top 10**.
 
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Run Agent Audit
-        uses: HeadyZhang/agent-security-suite@v1
+        uses: HeadyZhang/agent-audit@v1
         with:
           path: '.'
           fail-on: 'high'
@@ -151,7 +151,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ```bash
 # Clone the repository
-git clone https://github.com/HeadyZhang/agent-security-suite
+git clone https://github.com/HeadyZhang/agent-audit
 cd agent-security-suite
 
 # Install dependencies

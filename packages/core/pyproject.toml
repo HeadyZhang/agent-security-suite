@@ -5,9 +5,9 @@ description = "Core engine for Agent Security Suite - Security scanner for AI ag
 authors = ["Agent Security Team <security@example.com>"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/HeadyZhang/agent-security-suite"
-repository = "https://github.com/HeadyZhang/agent-security-suite"
-documentation = "https://github.com/HeadyZhang/agent-security-suite#readme"
+homepage = "https://github.com/HeadyZhang/agent-audit"
+repository = "https://github.com/HeadyZhang/agent-audit"
+documentation = "https://github.com/HeadyZhang/agent-audit#readme"
 packages = [{include = "agent_core"}]
 keywords = ["ai", "agent", "security", "mcp", "scanning", "owasp"]
 classifiers = [
@@ -25,8 +25,8 @@ classifiers = [
 ]
 
 [tool.poetry.urls]
-"Bug Tracker" = "https://github.com/HeadyZhang/agent-security-suite/issues"
-"Changelog" = "https://github.com/HeadyZhang/agent-security-suite/releases"
+"Bug Tracker" = "https://github.com/HeadyZhang/agent-audit/issues"
+"Changelog" = "https://github.com/HeadyZhang/agent-audit/releases"
 
 [tool.poetry.dependencies]
 python = "^3.9"
