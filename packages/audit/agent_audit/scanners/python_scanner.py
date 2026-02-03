@@ -1,6 +1,7 @@
 """Python AST scanner for detecting dangerous patterns in agent code."""
 
 import ast
+import fnmatch
 import logging
 from pathlib import Path
 from typing import List, Set, Optional, Dict, Any
@@ -68,14 +69,20 @@ class PythonScanner(BaseScanner):
     # Base classes for tool detection
     TOOL_BASE_CLASSES = {'BaseTool', 'StructuredTool'}
 
-    def __init__(self, exclude_paths: Optional[List[str]] = None):
+    def __init__(
+        self,
+        exclude_patterns: Optional[List[str]] = None,
+        exclude_paths: Optional[List[str]] = None  # Backward compatibility alias
+    ):
         """
         Initialize the Python scanner.
 
         Args:
-            exclude_paths: Path patterns to exclude from scanning
+            exclude_patterns: Glob patterns to exclude from scanning (e.g., "tests/**")
+            exclude_paths: Deprecated alias for exclude_patterns (backward compatibility)
         """
-        self.exclude_paths = set(exclude_paths or [])
+        # Support both parameter names for backward compatibility
+        self.exclude_patterns = exclude_patterns or exclude_paths or []
 
     def scan(self, path: Path) -> List[PythonScanResult]:
         """
@@ -106,8 +113,8 @@ class PythonScanner(BaseScanner):
         for py_file in path.rglob('*.py'):
             rel_path = str(py_file.relative_to(path))
 
-            # Skip excluded paths
-            if any(excl in rel_path for excl in self.exclude_paths):
+            # Skip excluded paths using glob patterns
+            if self._should_exclude(rel_path):
                 continue
 
             # Skip common non-source directories
@@ -124,6 +131,42 @@ class PythonScanner(BaseScanner):
             python_files.append(py_file)
 
         return python_files
+
+    def _should_exclude(self, rel_path: str) -> bool:
+        """Check if a relative path matches any exclude pattern."""
+        # Normalize path separators
+        normalized_path = rel_path.replace('\\', '/')
+
+        for pattern in self.exclude_patterns:
+            normalized_pattern = pattern.replace('\\', '/')
+
+            # Simple substring matching (backward compatibility)
+            if normalized_pattern in normalized_path:
+                return True
+
+            # Direct fnmatch for glob patterns
+            if fnmatch.fnmatch(normalized_path, normalized_pattern):
+                return True
+
+            # Handle "tests/**" style patterns
+            if normalized_pattern.endswith('/**'):
+                prefix = normalized_pattern[:-3]
+                if normalized_path.startswith(prefix + '/') or normalized_path == prefix:
+                    return True
+
+            # Handle "**/test_*" style patterns
+            if normalized_pattern.startswith('**/'):
+                suffix_pattern = normalized_pattern[3:]
+                # Match against filename
+                filename = Path(normalized_path).name
+                if fnmatch.fnmatch(filename, suffix_pattern):
+                    return True
+                # Match against any path segment
+                for part in Path(normalized_path).parts:
+                    if fnmatch.fnmatch(part, suffix_pattern):
+                        return True
+
+        return False
 
     def _scan_file(self, file_path: Path) -> Optional[PythonScanResult]:
         """Scan a single Python file."""

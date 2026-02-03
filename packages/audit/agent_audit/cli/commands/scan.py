@@ -42,10 +42,20 @@ def run_scan(
 
     Returns exit code: 0 for success, 1 for findings at fail_on level.
     """
-    # Initialize scanners
-    python_scanner = PythonScanner()
+    # Initialize ignore manager first to get exclude patterns
+    ignore_manager = IgnoreManager()
+    config_loaded = ignore_manager.load(path)
+
+    if verbose and config_loaded:
+        console.print(f"[dim]Loaded config from: {ignore_manager._loaded_from}[/dim]")
+
+    # Get exclude patterns from config
+    exclude_patterns = ignore_manager.get_exclude_patterns()
+
+    # Initialize scanners with exclude patterns
+    python_scanner = PythonScanner(exclude_patterns=exclude_patterns)
     mcp_scanner = MCPConfigScanner()
-    secret_scanner = SecretScanner()
+    secret_scanner = SecretScanner(exclude_paths=exclude_patterns)
     config_scanner = ConfigScanner()
 
     # Initialize rule engine
@@ -69,10 +79,6 @@ def run_scan(
             break
 
     rule_engine.load_rules()
-
-    # Initialize ignore manager
-    ignore_manager = IgnoreManager()
-    ignore_manager.load(path)
 
     # Collect all findings
     all_findings: List[Finding] = []

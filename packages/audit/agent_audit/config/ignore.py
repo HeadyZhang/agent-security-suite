@@ -34,6 +34,14 @@ class IgnoreRule:
 
 
 @dataclass
+class ScanConfig:
+    """Scan configuration."""
+    exclude: List[str] = field(default_factory=list)
+    min_severity: str = "low"
+    fail_on: str = "high"
+
+
+@dataclass
 class AllowlistConfig:
     """Allowlist configuration."""
     # Network hosts allowed for AGENT-003 (data exfiltration)
@@ -47,6 +55,9 @@ class AllowlistConfig:
 
     # Inline ignore marker (like # noqa)
     inline_ignore_marker: str = "# noaudit"
+
+    # Scan configuration
+    scan: ScanConfig = field(default_factory=ScanConfig)
 
 
 class IgnoreManager:
@@ -62,10 +73,16 @@ class IgnoreManager:
     def __init__(self):
         self.config: Optional[AllowlistConfig] = None
         self._loaded_from: Optional[Path] = None
+        self._base_path: Optional[Path] = None  # Base path for relative path matching
 
     def load(self, project_path: Path) -> bool:
         """
         Load ignore configuration from project path.
+
+        Searches for config in:
+        1. The scan target directory (project_path)
+        2. Current working directory (if different)
+        3. Parent directories up to filesystem root
 
         Args:
             project_path: Root path of the project to scan
@@ -73,11 +90,43 @@ class IgnoreManager:
         Returns:
             True if configuration was loaded successfully
         """
-        for filename in self.CONFIG_FILENAMES:
-            config_path = project_path / filename
-            if config_path.exists():
-                return self._load_file(config_path)
+        # Resolve to absolute path
+        project_path = project_path.resolve()
+        cwd = Path.cwd().resolve()
+
+        # Collect search paths (deduplicated, ordered)
+        search_paths: List[Path] = []
+
+        # 1. Scan target directory
+        search_paths.append(project_path)
+
+        # 2. CWD if different from target
+        if cwd != project_path:
+            search_paths.append(cwd)
+
+        # 3. Parent directories of project_path up to root
+        parent = project_path.parent
+        while parent != parent.parent:
+            if parent not in search_paths:
+                search_paths.append(parent)
+            parent = parent.parent
+
+        # Search each path for config files
+        for search_path in search_paths:
+            for filename in self.CONFIG_FILENAMES:
+                config_path = search_path / filename
+                if config_path.exists():
+                    # Store base path as the scan target (for relative path matching)
+                    self._base_path = project_path
+                    return self._load_file(config_path)
+
         return False
+
+    def get_exclude_patterns(self) -> List[str]:
+        """Get the list of exclude patterns from scan config."""
+        if self.config and self.config.scan:
+            return self.config.scan.exclude
+        return []
 
     def _load_file(self, path: Path) -> bool:
         """Load configuration from a specific file."""
@@ -99,13 +148,23 @@ class IgnoreManager:
                 )
                 ignore_rules.append(rule)
 
+            # Parse scan configuration (handle None value from YAML)
+            scan_data = data.get('scan') or {}
+            scan_config = ScanConfig(
+                exclude=scan_data.get('exclude') or [],
+                min_severity=scan_data.get('min_severity') or 'low',
+                fail_on=scan_data.get('fail_on') or 'high'
+            )
+
             self.config = AllowlistConfig(
                 allowed_hosts=data.get('allowed_hosts', []),
                 allowed_paths=data.get('allowed_paths', []),
                 ignore_rules=ignore_rules,
-                inline_ignore_marker=data.get('inline_ignore_marker', '# noaudit')
+                inline_ignore_marker=data.get('inline_ignore_marker', '# noaudit'),
+                scan=scan_config
             )
             self._loaded_from = path
+            logger.debug(f"Loaded config from {path}")
             return True
 
         except yaml.YAMLError as e:
@@ -135,17 +194,17 @@ class IgnoreManager:
         if not self.config:
             return None
 
+        # Compute relative path for matching
+        rel_path = self._get_relative_path(file_path)
+
         for ignore in self.config.ignore_rules:
-            # Match rule ID if specified
-            if ignore.rule_id and ignore.rule_id != rule_id:
+            # Match rule ID if specified (support "*" as wildcard for all rules)
+            if ignore.rule_id and ignore.rule_id != "*" and ignore.rule_id != rule_id:
                 continue
 
             # Match paths if specified
             if ignore.paths:
-                path_matched = any(
-                    fnmatch.fnmatch(file_path, pattern)
-                    for pattern in ignore.paths
-                )
+                path_matched = self._match_any_pattern(rel_path, ignore.paths)
                 if not path_matched:
                     continue
 
@@ -158,6 +217,77 @@ class IgnoreManager:
             return ignore.reason or f"Suppressed by config ({self._loaded_from})"
 
         return None
+
+    def _get_relative_path(self, file_path: str) -> str:
+        """
+        Convert a file path to a relative path for pattern matching.
+
+        If the file_path is absolute and within the base_path,
+        returns the relative portion. Otherwise returns the original path.
+        """
+        try:
+            file_path_obj = Path(file_path)
+            if file_path_obj.is_absolute() and self._base_path:
+                try:
+                    return str(file_path_obj.relative_to(self._base_path))
+                except ValueError:
+                    # file_path is not relative to base_path
+                    pass
+            return file_path
+        except Exception:
+            return file_path
+
+    def _match_any_pattern(self, path: str, patterns: List[str]) -> bool:
+        """
+        Check if a path matches any of the given glob patterns.
+
+        Handles both simple patterns (tests/**) and recursive patterns.
+        Uses forward slashes for cross-platform consistency.
+        """
+        # Normalize path separators to forward slashes
+        normalized_path = path.replace('\\', '/')
+
+        for pattern in patterns:
+            normalized_pattern = pattern.replace('\\', '/')
+
+            # Try direct fnmatch
+            if fnmatch.fnmatch(normalized_path, normalized_pattern):
+                return True
+
+            # For patterns like "tests/**", also match exact prefix "tests/"
+            if normalized_pattern.endswith('/**'):
+                prefix = normalized_pattern[:-3]  # Remove "/**"
+                if normalized_path.startswith(prefix + '/') or normalized_path == prefix:
+                    return True
+
+            # For patterns like "**/test_*", match against filename
+            if normalized_pattern.startswith('**/'):
+                suffix_pattern = normalized_pattern[3:]  # Remove "**/"
+                filename = Path(normalized_path).name
+                if fnmatch.fnmatch(filename, suffix_pattern):
+                    return True
+                # Also try matching any path component
+                for part in Path(normalized_path).parts:
+                    if fnmatch.fnmatch(part, suffix_pattern):
+                        return True
+
+        return False
+
+    def should_exclude_path(self, file_path: str) -> bool:
+        """
+        Check if a file path should be excluded from scanning.
+
+        Args:
+            file_path: Path to check (can be absolute or relative)
+
+        Returns:
+            True if the path should be excluded
+        """
+        if not self.config or not self.config.scan.exclude:
+            return False
+
+        rel_path = self._get_relative_path(file_path)
+        return self._match_any_pattern(rel_path, self.config.scan.exclude)
 
     def adjust_confidence(
         self,

@@ -1,5 +1,6 @@
 """Secret scanner for detecting hardcoded credentials."""
 
+import fnmatch
 import re
 import logging
 from pathlib import Path
@@ -172,14 +173,50 @@ class SecretScanner(BaseScanner):
             if not self._should_scan_file(file_path):
                 continue
 
-            # Check exclude patterns
+            # Check exclude patterns using glob matching
             rel_path = str(file_path.relative_to(path))
-            if any(excl in rel_path for excl in self.exclude_paths):
+            if self._should_exclude(rel_path):
                 continue
 
             files.append(file_path)
 
         return files
+
+    def _should_exclude(self, rel_path: str) -> bool:
+        """Check if a relative path matches any exclude pattern."""
+        # Normalize path separators
+        normalized_path = rel_path.replace('\\', '/')
+
+        for pattern in self.exclude_paths:
+            normalized_pattern = pattern.replace('\\', '/')
+
+            # Simple substring matching (backward compatibility)
+            if normalized_pattern in normalized_path:
+                return True
+
+            # Direct fnmatch for glob patterns
+            if fnmatch.fnmatch(normalized_path, normalized_pattern):
+                return True
+
+            # Handle "tests/**" style patterns
+            if normalized_pattern.endswith('/**'):
+                prefix = normalized_pattern[:-3]
+                if normalized_path.startswith(prefix + '/') or normalized_path == prefix:
+                    return True
+
+            # Handle "**/test_*" style patterns
+            if normalized_pattern.startswith('**/'):
+                suffix_pattern = normalized_pattern[3:]
+                # Match against filename
+                filename = Path(normalized_path).name
+                if fnmatch.fnmatch(filename, suffix_pattern):
+                    return True
+                # Match against any path segment
+                for part in Path(normalized_path).parts:
+                    if fnmatch.fnmatch(part, suffix_pattern):
+                        return True
+
+        return False
 
     def _should_scan_file(self, file_path: Path) -> bool:
         """Check if a file should be scanned."""
