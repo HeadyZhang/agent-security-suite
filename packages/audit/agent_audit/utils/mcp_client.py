@@ -3,11 +3,16 @@
 import asyncio
 import json
 import logging
+import sys
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+# Windows subprocess creation flags
+_IS_WINDOWS = sys.platform == "win32"
+_CREATE_NO_WINDOW = 0x08000000 if _IS_WINDOWS else 0
 
 
 class TransportType(Enum):
@@ -68,18 +73,28 @@ class StdioTransport(BaseMCPTransport):
     async def connect(self):
         """Start the MCP server process."""
         import os
+        import subprocess
 
         # Prepare environment
         process_env = os.environ.copy()
         if self.env:
             process_env.update(self.env)
 
+        # Build kwargs for subprocess creation
+        kwargs: Dict[str, Any] = {
+            "stdin": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+            "env": process_env,
+        }
+
+        # On Windows, prevent console window from appearing
+        if _IS_WINDOWS:
+            kwargs["creationflags"] = _CREATE_NO_WINDOW
+
         self.process = await asyncio.create_subprocess_exec(
             self.command, *self.args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=process_env
+            **kwargs
         )
 
         # Start background reader

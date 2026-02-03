@@ -1,8 +1,13 @@
 """Risk assessment models."""
 
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
+
+
+def _normalize_path(path: str) -> str:
+    """Normalize path to use forward slashes for cross-platform consistency."""
+    return path.replace("\\", "/")
 
 
 class Severity(Enum):
@@ -47,6 +52,10 @@ class Location:
     start_column: Optional[int] = None
     end_column: Optional[int] = None
     snippet: Optional[str] = None
+
+    def __post_init__(self):
+        """Normalize file_path to use forward slashes for cross-platform consistency."""
+        self.file_path = _normalize_path(self.file_path)
 
 
 @dataclass

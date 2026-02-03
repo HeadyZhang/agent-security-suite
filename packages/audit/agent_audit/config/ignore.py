@@ -260,7 +260,7 @@ def save_baseline(findings: List[Finding], output_path: Path):
         "created_at": datetime.utcnow().isoformat(),
         "fingerprints": [compute_fingerprint(f) for f in findings]
     }
-    output_path.write_text(json.dumps(baseline, indent=2))
+    output_path.write_text(json.dumps(baseline, indent=2), encoding="utf-8")
 
 
 def load_baseline(baseline_path: Path) -> Set[str]:
@@ -274,7 +274,7 @@ def load_baseline(baseline_path: Path) -> Set[str]:
         Set of fingerprints from the baseline
     """
     try:
-        data = json.loads(baseline_path.read_text())
+        data = json.loads(baseline_path.read_text(encoding="utf-8"))
         return set(data.get("fingerprints", []))
     except Exception as e:
         logger.warning(f"Failed to load baseline from {baseline_path}: {e}")

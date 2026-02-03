@@ -102,11 +102,15 @@ class MCPInspector:
         PermissionType.BROWSER_CONTROL: ['browser', 'playwright', 'puppeteer', 'selenium', 'chrome'],
     }
 
-    # Sensitive resource patterns
+    # Sensitive resource patterns (cross-platform)
     SENSITIVE_RESOURCE_PATTERNS = [
+        # Unix sensitive paths
         '/etc/', '.ssh/', '.aws/', '.env',
         'credentials', 'secret', 'password', 'token',
         'private_key', '.git/config', '.npmrc',
+        # Windows equivalents
+        'system32/config', 'AppData/Roaming', 'AppData/Local',
+        '%USERPROFILE%', '%APPDATA%', 'id_rsa', 'id_ed25519',
     ]
 
     def __init__(self, timeout: int = 30):

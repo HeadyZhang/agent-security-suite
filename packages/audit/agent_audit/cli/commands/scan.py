@@ -206,7 +206,7 @@ def run_scan(
         from agent_audit.cli.formatters.json import format_json
         json_output = format_json(all_findings, str(path), scanned_files)
         if output_path:
-            output_path.write_text(json_output)
+            output_path.write_text(json_output, encoding="utf-8")
         else:
             console.print(json_output)
     elif output_format == "sarif":
@@ -268,7 +268,7 @@ def _output_markdown(findings: List[Finding], scan_path: str, output_path: Optio
     md_content = "\n".join(lines)
 
     if output_path:
-        output_path.write_text(md_content)
+        output_path.write_text(md_content, encoding="utf-8")
     else:
         console.print(md_content)
 

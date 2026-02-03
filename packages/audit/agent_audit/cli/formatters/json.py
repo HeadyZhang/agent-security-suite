@@ -61,7 +61,7 @@ class JSONFormatter:
     ):
         """Save findings as JSON file."""
         json_str = self.format_to_string(findings, scan_path, scanned_files)
-        output_path.write_text(json_str)
+        output_path.write_text(json_str, encoding="utf-8")
 
     def _create_summary(self, findings: List[Finding]) -> Dict[str, Any]:
         """Create summary statistics."""

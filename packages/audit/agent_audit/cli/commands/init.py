@@ -34,7 +34,7 @@ def init(force: bool):
         sys.exit(1)
 
     config_content = create_default_config()
-    config_path.write_text(config_content)
+    config_path.write_text(config_content, encoding="utf-8")
 
     console.print(f"[green]Created configuration file: {config_path}[/green]")
     console.print()

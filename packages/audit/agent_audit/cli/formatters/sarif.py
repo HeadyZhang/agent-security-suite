@@ -60,7 +60,7 @@ class SARIFFormatter:
     def save(self, findings: List[Finding], output_path: Path):
         """Save findings as SARIF file."""
         sarif_str = self.format_to_string(findings)
-        output_path.write_text(sarif_str)
+        output_path.write_text(sarif_str, encoding="utf-8")
 
     def _extract_rules(self, findings: List[Finding]) -> List[Dict[str, Any]]:
         """Extract unique rules from findings."""
