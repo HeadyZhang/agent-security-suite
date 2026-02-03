@@ -41,7 +41,7 @@ Add agent-audit to your CI/CD pipeline:
 
 ```yaml
 - name: Run Agent Audit
-  uses: your-org/agent-audit@v1
+  uses: HeadyZhang/agent-security-suite@v1
   with:
     path: './src'
     fail-on: 'high'
@@ -117,7 +117,7 @@ Options:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/agent-audit
+git clone https://github.com/HeadyZhang/agent-security-suite
 cd agent-audit
 
 # Install dependencies
