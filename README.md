@@ -9,11 +9,9 @@
 >
 > 🛡️ 基于 **OWASP Agentic Top 10** 的 AI Agent 和 MCP 配置安全扫描器
 
-<!-- 
 <p align="center">
-  <img src="docs/demo.gif" alt="Agent Audit Demo" width="800">
+  <img src="docs/demo.png" alt="Agent Audit Demo" width="800">
 </p>
--->
 
 ## ✨ Features | 功能特性
 
