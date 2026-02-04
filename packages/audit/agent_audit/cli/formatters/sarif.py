@@ -93,7 +93,7 @@ class SARIFFormatter:
                     }
 
                 # Add CWE/OWASP tags
-                tags = []
+                tags: List[str] = []
                 if finding.cwe_id:
                     tags.append(f"external/cwe/{finding.cwe_id.lower()}")
                 if finding.owasp_id:
@@ -101,7 +101,7 @@ class SARIFFormatter:
                 if finding.category:
                     tags.append(finding.category.value)
                 if tags:
-                    rule["properties"]["tags"] = tags
+                    rule["properties"]["tags"] = tags  # type: ignore[index]
 
                 rules_map[finding.rule_id] = rule
 

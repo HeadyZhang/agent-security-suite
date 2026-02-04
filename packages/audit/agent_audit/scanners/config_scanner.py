@@ -45,7 +45,7 @@ class ConfigScanner(BaseScanner):
     name = "Config Scanner"
 
     # Configuration patterns to check
-    DANGEROUS_PATTERNS = {
+    DANGEROUS_PATTERNS: Dict[str, Dict[str, Any]] = {
         # Debug/development settings that shouldn't be in production
         'debug': {
             'dangerous_values': [True, 'true', 'True', '1', 'yes'],

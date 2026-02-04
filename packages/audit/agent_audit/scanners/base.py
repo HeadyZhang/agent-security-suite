@@ -3,7 +3,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Any, Dict
+from typing import Any, Dict, Sequence, TypeVar
+
+T = TypeVar("T", bound="ScanResult", covariant=True)
 
 
 @dataclass
@@ -19,7 +21,7 @@ class BaseScanner(ABC):
     name: str = "BaseScanner"
 
     @abstractmethod
-    def scan(self, path: Path) -> List[ScanResult]:
+    def scan(self, path: Path) -> Sequence[ScanResult]:
         """
         Scan the given path and return results.
 
@@ -27,6 +29,6 @@ class BaseScanner(ABC):
             path: Path to scan (file or directory)
 
         Returns:
-            List of scan results
+            Sequence of scan results
         """
         pass

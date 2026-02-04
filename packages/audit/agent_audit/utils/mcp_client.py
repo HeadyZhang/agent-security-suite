@@ -302,6 +302,7 @@ async def create_client(target: str, transport_type: TransportType) -> BaseMCPTr
     Returns:
         Connected MCP transport instance
     """
+    transport: BaseMCPTransport
     if transport_type == TransportType.STDIO:
         # Parse command and arguments
         parts = target.split()

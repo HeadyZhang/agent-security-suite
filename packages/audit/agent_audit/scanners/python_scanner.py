@@ -278,8 +278,8 @@ class PythonASTVisitor(ast.NodeVisitor):
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
         """Handle async function definitions the same as regular functions."""
-        # Reuse the same logic as FunctionDef
-        self.visit_FunctionDef(node)  # type: ignore
+        # Reuse the same logic as FunctionDef - cast to satisfy type checker
+        self.visit_FunctionDef(node)  # type: ignore[arg-type]
 
     def visit_Call(self, node: ast.Call):
         """Visit function calls to detect dangerous patterns."""
@@ -375,8 +375,8 @@ class PythonASTVisitor(ast.NodeVisitor):
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if item.name in ('_run', '_arun', 'run', 'arun'):
-                    permissions.update(self._analyze_function_permissions(item))
-                    has_validation = has_validation or self._check_input_validation(item)
+                    permissions.update(self._analyze_function_permissions(item))  # type: ignore[arg-type]
+                    has_validation = has_validation or self._check_input_validation(item)  # type: ignore[arg-type]
 
         tool = ToolDefinition(
             name=node.name,
@@ -486,8 +486,8 @@ class PythonASTVisitor(ast.NodeVisitor):
             return self._imported_names.get(name, name)
 
         elif isinstance(node.func, ast.Attribute):
-            parts = []
-            current = node.func
+            parts: List[str] = []
+            current: ast.expr = node.func
             while isinstance(current, ast.Attribute):
                 parts.append(current.attr)
                 current = current.value

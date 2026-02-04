@@ -77,14 +77,11 @@ class Finding:
         }
 
         # Add column information if available
+        region = result["locations"][0]["physicalLocation"]["region"]  # type: ignore[index]
         if self.location.start_column is not None:
-            result["locations"][0]["physicalLocation"]["region"]["startColumn"] = (
-                self.location.start_column
-            )
+            region["startColumn"] = self.location.start_column
         if self.location.end_column is not None:
-            result["locations"][0]["physicalLocation"]["region"]["endColumn"] = (
-                self.location.end_column
-            )
+            region["endColumn"] = self.location.end_column
 
         # Add fingerprint for deduplication
         result["fingerprints"] = {
@@ -92,7 +89,7 @@ class Finding:
         }
 
         # Add properties for additional metadata
-        properties = {}
+        properties: Dict[str, Any] = {}
         if self.confidence < 1.0:
             properties["confidence"] = self.confidence
         if self.cwe_id:

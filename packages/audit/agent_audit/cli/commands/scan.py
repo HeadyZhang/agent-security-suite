@@ -84,29 +84,29 @@ def run_scan(
         console.print("[dim]Scanning Python files...[/dim]")
 
     python_results = python_scanner.scan(path)
-    for result in python_results:
+    for py_result in python_results:
         scanned_files += 1
 
         # Generate findings from dangerous patterns
         findings = rule_engine.evaluate_dangerous_patterns(
-            result.dangerous_patterns,
-            result.source_file
+            py_result.dangerous_patterns,
+            py_result.source_file
         )
         all_findings.extend(findings)
 
         # Check for credentials in source
         try:
-            source = Path(result.source_file).read_text(encoding='utf-8')
-            cred_findings = rule_engine.evaluate_credentials(source, result.source_file)
+            source = Path(py_result.source_file).read_text(encoding='utf-8')
+            cred_findings = rule_engine.evaluate_credentials(source, py_result.source_file)
             all_findings.extend(cred_findings)
         except Exception:
             pass
 
         # Evaluate tool permissions
-        if result.tools:
+        if py_result.tools:
             perm_findings = rule_engine.evaluate_permission_scope(
-                result.tools,
-                result.source_file
+                py_result.tools,
+                py_result.source_file
             )
             all_findings.extend(perm_findings)
 
@@ -115,12 +115,12 @@ def run_scan(
         console.print("[dim]Scanning MCP configurations...[/dim]")
 
     mcp_results = mcp_scanner.scan(path)
-    for result in mcp_results:
+    for mcp_result in mcp_results:
         scanned_files += 1
 
         # Convert server configs to dicts for rule engine
         server_dicts = []
-        for server in result.servers:
+        for server in mcp_result.servers:
             server_dict = {
                 'name': server.name,
                 'url': server.url,
@@ -132,7 +132,7 @@ def run_scan(
             }
             server_dicts.append(server_dict)
 
-        mcp_findings = rule_engine.evaluate_mcp_config(server_dicts, result.source_file)
+        mcp_findings = rule_engine.evaluate_mcp_config(server_dicts, mcp_result.source_file)
         all_findings.extend(mcp_findings)
 
     # Run secret scanner
@@ -140,8 +140,8 @@ def run_scan(
         console.print("[dim]Scanning for secrets...[/dim]")
 
     secret_results = secret_scanner.scan(path)
-    for result in secret_results:
-        for secret in result.secrets:
+    for secret_result in secret_results:
+        for secret in secret_result.secrets:
             from agent_audit.models.risk import Location, Category
             from agent_audit.models.finding import Remediation
 
@@ -153,7 +153,7 @@ def run_scan(
                          Severity.HIGH if secret.severity == "high" else Severity.MEDIUM,
                 category=Category.CREDENTIAL_EXPOSURE,
                 location=Location(
-                    file_path=result.source_file,
+                    file_path=secret_result.source_file,
                     start_line=secret.line_number,
                     end_line=secret.line_number,
                     start_column=secret.start_col,

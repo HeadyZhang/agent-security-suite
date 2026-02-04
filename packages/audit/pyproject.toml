@@ -50,6 +50,7 @@ pytest-asyncio = "^0.21.0"
 black = "^23.0"
 ruff = "^0.1.0"
 mypy = "^1.0"
+types-PyYAML = "^6.0"
 
 [build-system]
 requires = ["poetry-core"]

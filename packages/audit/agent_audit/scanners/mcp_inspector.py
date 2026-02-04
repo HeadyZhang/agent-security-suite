@@ -261,9 +261,10 @@ class MCPInspector:
 
     def _analyze_input_schema(self, schema: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze input schema for security properties."""
-        result = {
+        unconstrained_strings: List[str] = []
+        result: Dict[str, Any] = {
             "has_validation": False,
-            "unconstrained_strings": [],
+            "unconstrained_strings": unconstrained_strings,
             "has_enum": False,
             "has_pattern": False,
         }
@@ -283,7 +284,7 @@ class MCPInspector:
                 elif "maxLength" in param_def or "minLength" in param_def:
                     result["has_validation"] = True
                 else:
-                    result["unconstrained_strings"].append(param_name)
+                    unconstrained_strings.append(param_name)
 
             elif param_type in ("integer", "number"):
                 if "minimum" in param_def or "maximum" in param_def:
@@ -361,7 +362,7 @@ class MCPInspector:
 
     def _generate_findings(self, result: MCPInspectionResult) -> List[Dict[str, Any]]:
         """Generate security findings from inspection."""
-        findings = []
+        findings: List[Dict[str, Any]] = []
 
         # Check for high-risk tools
         for tool in result.tools:

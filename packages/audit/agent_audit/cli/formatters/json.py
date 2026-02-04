@@ -69,12 +69,12 @@ class JSONFormatter:
         actionable = sum(1 for f in findings if f.is_actionable())
         suppressed = sum(1 for f in findings if f.suppressed)
 
-        by_severity = {}
+        by_severity: Dict[str, int] = {}
         for f in findings:
             sev = f.severity.value
             by_severity[sev] = by_severity.get(sev, 0) + 1
 
-        by_category = {}
+        by_category: Dict[str, int] = {}
         for f in findings:
             cat = f.category.value
             by_category[cat] = by_category.get(cat, 0) + 1

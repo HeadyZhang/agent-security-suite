@@ -299,10 +299,11 @@ class MCPConfigScanner(BaseScanner):
 
         Returns analysis of filesystem access configuration.
         """
-        result = {
+        accessible_paths: List[str] = []
+        result: Dict[str, Any] = {
             'has_root_access': False,
             'has_home_access': False,
-            'accessible_paths': [],
+            'accessible_paths': accessible_paths,
             'risk_level': 'low'
         }
 
@@ -316,6 +317,6 @@ class MCPConfigScanner(BaseScanner):
                     result['has_home_access'] = True
                     result['risk_level'] = 'high' if result['risk_level'] != 'critical' else 'critical'
                 elif arg.startswith('/'):
-                    result['accessible_paths'].append(arg)
+                    accessible_paths.append(arg)
 
         return result
