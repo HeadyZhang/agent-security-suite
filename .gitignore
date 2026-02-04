@@ -15,6 +15,5 @@ htmlcov/
 .coverage
 *.sarif
 
-# Internal development docs
-CLAUDE.md
+# Internal development docs (specs is private)
 specs/

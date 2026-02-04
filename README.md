@@ -90,7 +90,28 @@ jobs:
 | `baseline` | Path to baseline file for incremental scanning | - |
 | `upload-sarif` | Upload SARIF to GitHub Security tab | `true` |
 
-## 🎯 Detected Issues | 检测规则
+## 🎯 OWASP Agentic Top 10 Coverage | OWASP Agentic Top 10 覆盖
+
+Agent Audit now covers the full **OWASP Agentic Top 10 for 2026** (ASI-01 ~ ASI-10).
+
+Agent Audit 现已完整覆盖 **OWASP Agentic Top 10 for 2026** (ASI-01 ~ ASI-10)。
+
+| OWASP ID | Risk Name | Rules | Status |
+|----------|-----------|-------|--------|
+| ASI-01 | Agent Goal Hijack | AGENT-010, AGENT-011 | ✅ |
+| ASI-02 | Tool Misuse & Exploitation | AGENT-001, AGENT-012 | ✅ |
+| ASI-03 | Identity & Privilege Abuse | AGENT-002, AGENT-013, AGENT-014 | ✅ |
+| ASI-04 | Supply Chain Vulnerabilities | AGENT-005, AGENT-015, AGENT-016 | ✅ |
+| ASI-05 | Unexpected Code Execution | AGENT-017 | ✅ |
+| ASI-06 | Memory & Context Poisoning | AGENT-018, AGENT-019 | ✅ |
+| ASI-07 | Insecure Inter-Agent Comm | AGENT-020 | ✅ |
+| ASI-08 | Cascading Failures | AGENT-021, AGENT-022 | ✅ |
+| ASI-09 | Human-Agent Trust Exploitation | AGENT-023 | ✅ |
+| ASI-10 | Rogue Agents | AGENT-024, AGENT-025 | ✅ |
+
+## 📋 Complete Rule List | 完整规则列表
+
+### Original Rules (v0.1.x)
 
 | Rule ID | Title | Severity |
 |---------|-------|----------|
@@ -99,6 +120,26 @@ jobs:
 | AGENT-003 | Potential Data Exfiltration Chain | 🟠 High |
 | AGENT-004 | Hardcoded Credentials | 🔴 Critical |
 | AGENT-005 | Unverified MCP Server | 🟠 High |
+
+### New Rules (v0.2.0 - OWASP Agentic)
+
+| Rule ID | Title | OWASP | Severity |
+|---------|-------|-------|----------|
+| AGENT-010 | System Prompt Injection Vector | ASI-01 | 🔴 Critical |
+| AGENT-011 | Missing Goal Validation / Instruction Boundary | ASI-01 | 🟠 High |
+| AGENT-013 | Agent with Long-Lived or Shared Credentials | ASI-03 | 🟠 High |
+| AGENT-014 | Overly Permissive Agent Role / Tool Access | ASI-03 | 🟠 High |
+| AGENT-015 | Untrusted MCP Server Source | ASI-04 | 🔴 Critical |
+| AGENT-016 | Unvalidated RAG Data Source | ASI-04 | 🟠 High |
+| AGENT-017 | Unsandboxed Code Execution in Agent | ASI-05 | 🔴 Critical |
+| AGENT-018 | Unsanitized Input to Persistent Memory | ASI-06 | 🔴 Critical |
+| AGENT-019 | Conversation History Without Integrity Protection | ASI-06 | 🟡 Medium |
+| AGENT-020 | Unencrypted or Unauthenticated Inter-Agent Channel | ASI-07 | 🟠 High |
+| AGENT-021 | Missing Circuit Breaker / Max Iterations | ASI-08 | 🟠 High |
+| AGENT-022 | No Error Handling in Tool Execution | ASI-08 | 🟡 Medium |
+| AGENT-023 | Agent Output Without Transparency / Audit Trail | ASI-09 | 🟡 Medium |
+| AGENT-024 | Agent Without Kill Switch / Shutdown Mechanism | ASI-10 | 🔴 Critical |
+| AGENT-025 | Agent Without Behavioral Monitoring / Logging | ASI-10 | 🟠 High |
 
 ## ⚙️ Configuration | 配置
 

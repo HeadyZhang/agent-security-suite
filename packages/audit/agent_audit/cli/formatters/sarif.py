@@ -97,7 +97,13 @@ class SARIFFormatter:
                 if finding.cwe_id:
                     tags.append(f"external/cwe/{finding.cwe_id.lower()}")
                 if finding.owasp_id:
-                    tags.append(f"external/owasp/{finding.owasp_id}")
+                    # Use OWASP-Agentic prefix for ASI-XX identifiers
+                    if finding.owasp_id.startswith("ASI-"):
+                        tags.append(f"OWASP-Agentic-{finding.owasp_id}")
+                    else:
+                        tags.append(f"external/owasp/{finding.owasp_id}")
+                    # Also add owasp-agentic-id to properties
+                    rule["properties"]["owasp-agentic-id"] = finding.owasp_id  # type: ignore[index]
                 if finding.category:
                     tags.append(finding.category.value)
                 if tags:

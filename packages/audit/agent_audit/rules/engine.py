@@ -32,6 +32,50 @@ class RuleEngine:
     Loads rules from YAML files and applies them to scan results.
     """
 
+    # Pattern type to Rule ID mapping for OWASP Agentic Top 10
+    PATTERN_TYPE_TO_RULE_MAP: Dict[str, str] = {
+        # ASI-01: Goal Hijack
+        'prompt_injection_fstring': 'AGENT-010',
+        'prompt_injection_fstring_kwarg': 'AGENT-010',
+        'prompt_injection_format': 'AGENT-010',
+        'system_prompt_fstring': 'AGENT-010',
+        'system_prompt_concat': 'AGENT-010',
+        'system_prompt_format': 'AGENT-010',
+        'agent_without_input_guard': 'AGENT-011',
+
+        # ASI-03: Identity & Privilege Abuse
+        'hardcoded_credential_in_agent': 'AGENT-013',
+        'excessive_tools': 'AGENT-014',
+        'auto_approval': 'AGENT-014',
+
+        # ASI-04: Supply Chain
+        'npx_unfixed_version': 'AGENT-015',
+        'unofficial_mcp_source': 'AGENT-015',
+        'unvalidated_rag_ingestion': 'AGENT-016',
+
+        # ASI-05: RCE
+        'unsandboxed_code_exec_in_tool': 'AGENT-017',
+
+        # ASI-06: Memory Poisoning
+        'unsanitized_memory_write': 'AGENT-018',
+        'unbounded_memory': 'AGENT-019',
+
+        # ASI-07: Insecure Communication
+        'multi_agent_no_auth': 'AGENT-020',
+        'agent_comm_no_tls': 'AGENT-020',
+
+        # ASI-08: Cascading Failures
+        'missing_circuit_breaker': 'AGENT-021',
+        'tool_without_error_handling': 'AGENT-022',
+
+        # ASI-09: Trust Exploitation
+        'opaque_agent_output': 'AGENT-023',
+
+        # ASI-10: Rogue Agents
+        'no_kill_switch': 'AGENT-024',
+        'no_observability': 'AGENT-025',
+    }
+
     # Pre-compiled regex patterns for common detections
     CREDENTIAL_PATTERNS = [
         (re.compile(r'AKIA[0-9A-Z]{16}'), "AWS Access Key"),
@@ -104,6 +148,7 @@ class RuleEngine:
         for pattern in patterns:
             pattern_type = pattern.get('type', '')
 
+            # Check original patterns (AGENT-001)
             if pattern_type == 'shell_true' or pattern_type == 'dangerous_function_call':
                 # Check if this matches AGENT-001 (Command Injection)
                 if self._is_command_injection(pattern):
@@ -114,6 +159,17 @@ class RuleEngine:
                     )
                     if finding:
                         findings.append(finding)
+
+            # Check OWASP Agentic patterns
+            if pattern_type in self.PATTERN_TYPE_TO_RULE_MAP:
+                rule_id = self.PATTERN_TYPE_TO_RULE_MAP[pattern_type]
+                finding = self._create_finding_from_pattern(
+                    rule_id=rule_id,
+                    pattern=pattern,
+                    file_path=file_path
+                )
+                if finding:
+                    findings.append(finding)
 
         return findings
 
@@ -465,6 +521,9 @@ class RuleEngine:
                 if remediation_data.get('references') else None
             )
 
+        # Support both owasp_id and owasp_agentic_id
+        owasp_id = rule.get('owasp_agentic_id') or rule.get('owasp_id')
+
         return Finding(
             rule_id=rule['id'],
             title=rule['title'],
@@ -478,7 +537,7 @@ class RuleEngine:
                 snippet=match.get('snippet', '')
             ),
             cwe_id=rule.get('cwe_id'),
-            owasp_id=rule.get('owasp_id'),
+            owasp_id=owasp_id,
             remediation=remediation,
             confidence=match.get('confidence', 1.0)
         )

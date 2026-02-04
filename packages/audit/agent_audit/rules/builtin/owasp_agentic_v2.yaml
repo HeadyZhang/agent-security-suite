@@ -1,0 +1,832 @@
+# OWASP Agentic Top 10 (2026) - Extended Rules
+# Reference: https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/
+# NOTE: Do NOT modify this file manually. All new rules should be appended.
+
+rules:
+
+  # =============================================================================
+  # ASI-01: Agent Goal Hijack
+  # Attacker manipulates agent's goals, decision logic, or task selection through
+  # malicious input. Unlike simple prompt injection, Goal Hijack affects the
+  # agent's multi-step planning behavior.
+  # =============================================================================
+
+  - id: AGENT-010
+    title: "System Prompt Injection Vector in User Input Path"
+    description: >
+      User-controlled input is concatenated directly into system prompts or
+      agent instructions without sanitization. This enables Agent Goal Hijack
+      (ASI-01) where attackers can redirect the agent's planning and objectives.
+    severity: critical
+    category: goal_hijack
+    owasp_agentic_id: "ASI-01"
+    cwe_id: "CWE-77"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "function_arg_fstring"
+          function_names:
+            - "ChatPromptTemplate.from_messages"
+            - "SystemMessage"
+            - "SystemMessagePromptTemplate"
+            - "HumanMessagePromptTemplate.from_template"
+          arg_contains_fstring: true
+          context: "system_prompt"
+
+        - pattern_type: "string_concat_to_prompt"
+          target_variables:
+            - "system_prompt"
+            - "system_message"
+            - "instructions"
+            - "system_instructions"
+            - "agent_prompt"
+          operations:
+            - "format"
+            - "+"
+            - "f-string"
+            - ".join"
+
+        - pattern_type: "unsanitized_template_variable"
+          template_functions:
+            - "PromptTemplate"
+            - "ChatPromptTemplate"
+          dangerous_variable_sources:
+            - "request"
+            - "user_input"
+            - "query"
+            - "message"
+            - "input"
+
+    remediation:
+      description: >
+        Never concatenate user input directly into system prompts.
+        Use structured prompt templates with clear separation between
+        system instructions and user data. Implement input validation
+        and sanitization before passing to any prompt template.
+      code_example: |
+        # BAD: Direct concatenation
+        prompt = f"You are an agent. User says: {user_input}"
+
+        # GOOD: Structured separation
+        messages = [
+            SystemMessage(content="You are a helpful agent."),
+            HumanMessage(content=sanitize(user_input))
+        ]
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+        - "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+
+  - id: AGENT-011
+    title: "Missing Goal Validation / Instruction Boundary"
+    description: >
+      Agent configuration lacks explicit goal boundaries or instruction
+      immutability controls. Without 'Intent Capsule' patterns or goal
+      validation, the agent's objectives can be silently redirected via
+      poisoned documents, emails, or tool outputs (ASI-01).
+    severity: high
+    category: goal_hijack
+    owasp_agentic_id: "ASI-01"
+
+    detection:
+      type: config
+      patterns:
+        - pattern_type: "missing_config_key"
+          config_contexts:
+            - framework: "langchain"
+              required_keys:
+                - "allowed_tools"
+                - "max_iterations"
+            - framework: "crewai"
+              required_keys:
+                - "goal"
+                - "backstory"
+                - "max_iter"
+            - framework: "autogen"
+              required_keys:
+                - "system_message"
+                - "max_consecutive_auto_reply"
+
+        - pattern_type: "agent_without_input_guard"
+          indicators:
+            - "AgentExecutor"
+            - "initialize_agent"
+            - "Agent("
+          missing_guards:
+            - "input_validator"
+            - "input_filter"
+            - "input_guard"
+            - "prompt_guard"
+
+    remediation:
+      description: >
+        Implement explicit goal boundaries for all agents. Use immutable
+        system instructions, define allowed_tools explicitly, set
+        max_iterations, and add input validation before agent execution.
+      code_example: |
+        # GOOD: Explicit boundaries
+        agent = AgentExecutor(
+            agent=agent,
+            tools=allowed_tools_only,
+            max_iterations=10,
+            handle_parsing_errors=True,
+            early_stopping_method="generate",
+        )
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-03: Identity and Privilege Abuse
+  # Agent misuses its identity or inherits credentials from other services for
+  # privilege escalation. Agents are the most dangerous non-human identity (NHI)
+  # and require zero-trust identity management.
+  # =============================================================================
+
+  - id: AGENT-013
+    title: "Agent with Long-Lived or Shared Credentials"
+    description: >
+      Agent uses long-lived API keys, shared service accounts, or
+      hardcoded tokens instead of short-lived, scoped credentials.
+      This violates zero-trust identity principles and enables
+      Identity & Privilege Abuse (ASI-03).
+    severity: high
+    category: identity_privilege_abuse
+    owasp_agentic_id: "ASI-03"
+    cwe_id: "CWE-798"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "hardcoded_credential_in_agent"
+          indicators:
+            - assignment_to:
+                - "api_key"
+                - "secret_key"
+                - "access_token"
+                - "service_account_key"
+                - "bearer_token"
+              value_is: "string_literal"
+              context_near:
+                - "Agent"
+                - "Tool"
+                - "LLM"
+                - "ChatOpenAI"
+                - "Anthropic"
+
+        - pattern_type: "unscoped_env_credential"
+          functions:
+            - "os.environ.get"
+            - "os.getenv"
+          variable_names:
+            - "API_KEY"
+            - "SECRET_KEY"
+            - "SERVICE_TOKEN"
+          missing_patterns:
+            - "token_expiry"
+            - "credential_scope"
+            - "session_token"
+
+    remediation:
+      description: >
+        Use short-lived, session-scoped credentials for agents. Each agent
+        should have its own unique identity. Implement credential rotation
+        and scope credentials to the minimum required permissions.
+      code_example: |
+        # BAD: Long-lived shared credential
+        agent = Agent(api_key="sk-hardcoded-key-123")
+
+        # GOOD: Short-lived scoped credential
+        credential = get_scoped_credential(
+            scope="read:documents",
+            ttl=timedelta(minutes=15)
+        )
+        agent = Agent(credential=credential)
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  - id: AGENT-014
+    title: "Overly Permissive Agent Role / Tool Access"
+    description: >
+      Agent is configured with overly broad tool access or admin-level
+      permissions when it only needs a subset. Violates the Least-Agency
+      principle (ASI-03).
+    severity: high
+    category: identity_privilege_abuse
+    owasp_agentic_id: "ASI-03"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "excessive_tool_grant"
+          indicators:
+            dangerous_tool_combinations:
+              - ["file_read", "network_outbound"]
+              - ["shell_exec", "network_outbound"]
+              - ["database_write", "shell_exec"]
+              - ["file_write", "file_delete", "shell_exec"]
+            tool_count_threshold: 10
+
+        - pattern_type: "auto_approval_pattern"
+          keywords:
+            - "trust_all_tools"
+            - "auto_approve"
+            - "no_confirm"
+            - "skip_approval"
+            - "--dangerously-skip-permissions"
+            - "handle_tool_error=True"
+
+    remediation:
+      description: >
+        Apply Least-Agency principle: grant agents only the minimum tools
+        and permissions needed for their specific task. Review tool lists
+        regularly and remove unnecessary capabilities.
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-04: Agentic Supply Chain Vulnerabilities
+  # External components the agent depends on (third-party APIs, models, RAG
+  # data sources, MCP servers) pose risks. Key insight: supply chain includes
+  # not just code but also data and models.
+  # =============================================================================
+
+  - id: AGENT-015
+    title: "Untrusted MCP Server Source"
+    description: >
+      MCP server is loaded from an unverified source without integrity
+      verification. Malicious MCP servers on npm have been documented
+      in the wild (ASI-04).
+    severity: critical
+    category: supply_chain_agentic
+    owasp_agentic_id: "ASI-04"
+    cwe_id: "CWE-494"
+
+    detection:
+      type: config
+      patterns:
+        - pattern_type: "npx_unfixed_version"
+          in_config_keys:
+            - "mcpServers"
+            - "servers"
+          command_patterns:
+            - regex: "npx\\s+(-y\\s+)?(?!@modelcontextprotocol/)\\S+"
+              description: "npx running non-official MCP package"
+            - regex: "npx\\s+.*@latest"
+              description: "npx with @latest tag (unpinned version)"
+
+        - pattern_type: "missing_integrity_check"
+          missing_keys:
+            - "hash"
+            - "integrity"
+            - "checksum"
+            - "sha256"
+
+        - pattern_type: "unofficial_mcp_source"
+          untrusted_indicators:
+            - "github.com"
+            - "file://"
+            - "http://"
+
+    remediation:
+      description: >
+        Pin MCP server versions explicitly. Verify integrity with checksums.
+        Only use MCP servers from trusted registries or official sources.
+        Audit MCP server code before deploying.
+      code_example: |
+        // BAD: Unpinned, unknown source
+        "mcpServers": {
+          "risky": { "command": "npx", "args": ["-y", "some-unknown-package"] }
+        }
+
+        // GOOD: Pinned version, official source
+        "mcpServers": {
+          "filesystem": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem@1.2.3"]
+          }
+        }
+      references:
+        - "https://www.bleepingcomputer.com/news/security/the-real-world-attacks-behind-owasp-agentic-ai-top-10/"
+
+  - id: AGENT-016
+    title: "Unvalidated RAG Data Source"
+    description: >
+      Agent's RAG pipeline ingests data from external sources without
+      integrity validation or provenance tracking. Poisoned RAG data
+      can silently corrupt agent decisions (ASI-04).
+    severity: high
+    category: supply_chain_agentic
+    owasp_agentic_id: "ASI-04"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "unvalidated_rag_ingestion"
+          functions:
+            - "WebBaseLoader"
+            - "UnstructuredURLLoader"
+            - "DirectoryLoader"
+            - "CSVLoader"
+            - "PyPDFLoader"
+          missing_validation:
+            - "validate_source"
+            - "check_integrity"
+            - "verify_checksum"
+          chained_to:
+            - "add_documents"
+            - "from_documents"
+            - "add_texts"
+            - "upsert"
+
+    remediation:
+      description: >
+        Validate all RAG data sources before ingestion. Implement data
+        integrity checks, maintain data lineage, and regularly audit
+        vector store contents for poisoned entries.
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-05: Unexpected Code Execution (RCE)
+  # Agent is manipulated to generate and execute malicious code. This is a
+  # special and high-severity form of ASI-02 (Tool Misuse).
+  # Core defense: hardware-level sandbox + code static analysis.
+  # =============================================================================
+
+  - id: AGENT-017
+    title: "Unsandboxed Code Execution in Agent"
+    description: >
+      Agent executes dynamically generated code (via eval, exec,
+      subprocess, or code interpreter tools) without sandbox isolation.
+      This enables RCE attacks where manipulated prompts lead to
+      arbitrary code execution on the host system (ASI-05).
+    severity: critical
+    category: unexpected_code_execution
+    owasp_agentic_id: "ASI-05"
+    cwe_id: "CWE-94"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "dynamic_exec_in_agent"
+          functions:
+            - "eval"
+            - "exec"
+            - "compile"
+          context:
+            - inside_tool_decorator: true
+            - inside_agent_class: true
+
+        - pattern_type: "subprocess_without_sandbox"
+          functions:
+            - "subprocess.run"
+            - "subprocess.Popen"
+            - "subprocess.call"
+            - "os.system"
+            - "os.popen"
+          missing_guards:
+            - "docker"
+            - "sandbox"
+            - "seccomp"
+            - "apparmor"
+            - "nsjail"
+            - "firejail"
+            - "--read-only"
+            - "restricted"
+
+        - pattern_type: "code_interpreter_no_sandbox"
+          tool_names:
+            - "PythonREPLTool"
+            - "PythonAstREPLTool"
+            - "ShellTool"
+            - "BashTool"
+            - "code_interpreter"
+          missing_config:
+            - "sandbox"
+            - "docker"
+            - "isolation"
+            - "restricted"
+
+    remediation:
+      description: >
+        NEVER execute LLM-generated code on the host system without
+        hardware-enforced sandbox isolation. Use Docker containers with
+        read-only filesystems, disabled networking, and resource limits.
+        Apply static analysis to generated code before execution.
+      code_example: |
+        # BAD: Direct execution
+        @tool
+        def run_code(code: str):
+            exec(code)  # RCE vulnerability
+
+        # GOOD: Sandboxed execution
+        @tool
+        def run_code(code: str):
+            result = docker_sandbox.execute(
+                code, timeout=30, network=False, read_only=True
+            )
+            return result
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-06: Memory & Context Poisoning
+  # Attacker injects malicious data into the agent's long-term memory
+  # (vector database, knowledge graph) causing the agent to exhibit wrong
+  # or malicious behavior even without active attack.
+  # Key difference: This is persistent corruption, unlike transient goal hijack.
+  # =============================================================================
+
+  - id: AGENT-018
+    title: "Unsanitized Input to Persistent Memory"
+    description: >
+      User or external input is written to the agent's persistent memory
+      (vector database, knowledge graph, conversation store) without
+      sanitization or validation. This enables Memory Poisoning (ASI-06)
+      where malicious data persists across sessions.
+    severity: critical
+    category: memory_poisoning
+    owasp_agentic_id: "ASI-06"
+    cwe_id: "CWE-20"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "unsanitized_memory_write"
+          write_functions:
+            - "add_documents"
+            - "add_texts"
+            - "upsert"
+            - "insert"
+            - "persist"
+            - "save_context"
+            - "add_message"
+            - "add_memory"
+            - "store"
+          source_indicators:
+            - "user_input"
+            - "message"
+            - "query"
+            - "request"
+            - "input"
+          missing_between:
+            - "sanitize"
+            - "validate"
+            - "filter"
+            - "clean"
+            - "escape"
+
+    remediation:
+      description: >
+        Sanitize and validate ALL data before writing to persistent memory.
+        Implement integrity checks on stored data. Use version control
+        for memory stores to enable rollback if poisoning is detected.
+      code_example: |
+        # BAD: Direct write
+        vectorstore.add_texts([user_input])
+
+        # GOOD: Sanitized write with validation
+        sanitized = sanitize_for_storage(user_input)
+        if validate_content(sanitized):
+            vectorstore.add_texts([sanitized], metadata={"source": "user", "timestamp": now()})
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  - id: AGENT-019
+    title: "Conversation History Without Integrity Protection"
+    description: >
+      Agent stores and retrieves conversation history without integrity
+      protection, versioning, or expiration. An attacker can poison
+      conversation context to influence future agent behavior (ASI-06).
+    severity: medium
+    category: memory_poisoning
+    owasp_agentic_id: "ASI-06"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "unbounded_memory"
+          classes:
+            - "ConversationBufferMemory"
+            - "ConversationBufferWindowMemory"
+            - "ConversationSummaryMemory"
+          missing_config:
+            - "k="
+            - "max_token_limit"
+            - "return_messages=False"
+
+        - pattern_type: "memory_without_expiry"
+          indicators:
+            - "RedisChatMessageHistory"
+            - "MongoDBChatMessageHistory"
+            - "FileChatMessageHistory"
+          missing_config:
+            - "ttl"
+            - "expiry"
+            - "max_age"
+            - "session_timeout"
+
+    remediation:
+      description: >
+        Implement bounded memory with explicit window sizes or TTL.
+        Add integrity checksums to stored conversation history.
+        Implement session-based isolation to prevent cross-session pollution.
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-07: Insecure Inter-Agent Communication
+  # In multi-agent systems, communication channels between agents are vulnerable
+  # to interception, spoofing, or replay attacks. Multi-agent systems are
+  # essentially distributed systems and must be secured as such.
+  # =============================================================================
+
+  - id: AGENT-020
+    title: "Unencrypted or Unauthenticated Inter-Agent Channel"
+    description: >
+      Multi-agent system communicates over unencrypted channels or without
+      mutual authentication. Agents trust other agents based on network
+      location alone, enabling impersonation and message tampering (ASI-07).
+    severity: high
+    category: insecure_inter_agent_comm
+    owasp_agentic_id: "ASI-07"
+    cwe_id: "CWE-319"
+
+    detection:
+      type: composite
+      patterns:
+        - pattern_type: "multi_agent_no_auth"
+          framework_patterns:
+            - class_names: ["GroupChat", "GroupChatManager", "ConversableAgent"]
+              framework: "autogen"
+              missing_config: ["authentication", "tls", "verify"]
+            - class_names: ["Crew", "Agent"]
+              framework: "crewai"
+              missing_config: ["auth", "secure_channel"]
+
+        - pattern_type: "agent_comm_no_tls"
+          url_patterns:
+            - "http://"
+          context_keywords:
+            - "agent"
+            - "delegate"
+            - "handoff"
+            - "message"
+
+        - pattern_type: "no_message_verification"
+          missing_patterns:
+            - "verify_signature"
+            - "hmac"
+            - "sign_message"
+            - "mutual_tls"
+            - "mTLS"
+
+    remediation:
+      description: >
+        Apply mutual TLS (mTLS) to all inter-agent communication.
+        Cryptographically sign all messages between agents.
+        Never trust agent identity based on network location alone.
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-08: Cascading Failures
+  # A small failure in one component triggers chain reactions leading to
+  # system-wide uncontrolled failure. Agent planner may attempt increasingly
+  # dangerous operations while trying to recover.
+  # This is a resilience and architectural vulnerability, not necessarily
+  # requiring malicious intent.
+  # =============================================================================
+
+  - id: AGENT-021
+    title: "Missing Circuit Breaker / Max Iterations"
+    description: >
+      Agent loop lacks circuit breaker, max iteration limit, or error
+      budget. A minor tool failure can trigger infinite retry loops or
+      increasingly destructive recovery attempts (ASI-08).
+    severity: high
+    category: cascading_failures
+    owasp_agentic_id: "ASI-08"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "agent_without_iteration_limit"
+          agent_constructors:
+            - "AgentExecutor"
+            - "initialize_agent"
+            - "create_react_agent"
+          missing_params:
+            - "max_iterations"
+            - "max_execution_time"
+            - "max_steps"
+            - "timeout"
+
+        - pattern_type: "unbounded_agent_loop"
+          loop_patterns:
+            - "while True"
+            - "while 1"
+          context_near:
+            - "tool"
+            - "agent"
+            - "llm"
+            - "invoke"
+            - "run"
+          missing_break_conditions:
+            - "max_retries"
+            - "break"
+            - "timeout"
+
+    remediation:
+      description: >
+        Always configure max_iterations, max_execution_time, and error
+        budgets for agent loops. Implement circuit breaker patterns that
+        pause execution and seek human intervention on repeated failures.
+      code_example: |
+        # BAD: No limits
+        agent = AgentExecutor(agent=agent, tools=tools)
+
+        # GOOD: Explicit limits
+        agent = AgentExecutor(
+            agent=agent, tools=tools,
+            max_iterations=15,
+            max_execution_time=300,
+            handle_parsing_errors=True,
+            early_stopping_method="generate",
+        )
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  - id: AGENT-022
+    title: "No Error Handling in Tool Execution"
+    description: >
+      Agent tool functions lack error handling, causing unhandled
+      exceptions to propagate and potentially trigger cascading failures
+      across the agent's execution pipeline (ASI-08).
+    severity: medium
+    category: cascading_failures
+    owasp_agentic_id: "ASI-08"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "tool_without_error_handling"
+          indicators:
+            - has_tool_decorator: true
+            - missing_try_except: true
+            - calls_external: true
+
+    remediation:
+      description: >
+        Wrap all tool function bodies in try/except with graceful error
+        messages. Never let raw exceptions propagate to the agent planner.
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-09: Human-Agent Trust Exploitation
+  # Attacker manipulates agent output to deceive human users, causing them
+  # to bypass security controls or approve malicious operations.
+  # Essentially using human trust in agents for social engineering.
+  # =============================================================================
+
+  - id: AGENT-023
+    title: "Agent Output Without Transparency / Audit Trail"
+    description: >
+      Agent produces outputs or recommendations without exposing its
+      reasoning chain, data sources, or tool invocations to the human
+      reviewer. This makes human-in-the-loop a rubber stamp rather than
+      a genuine review (ASI-09).
+    severity: medium
+    category: trust_exploitation
+    owasp_agentic_id: "ASI-09"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "opaque_agent_output"
+          agent_patterns:
+            - "AgentExecutor"
+          missing_config:
+            - "return_intermediate_steps=True"
+            - "verbose=True"
+            - "return_source_documents"
+            - "include_reasoning"
+
+    remediation:
+      description: >
+        Configure agents to return intermediate steps and reasoning.
+        Make all data sources and tool invocations visible to human
+        reviewers. The human-in-the-loop must be a critical review
+        step, not a rubber stamp.
+      code_example: |
+        # GOOD: Transparent output
+        agent = AgentExecutor(
+            agent=agent, tools=tools,
+            return_intermediate_steps=True,
+            verbose=True,
+        )
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-10: Rogue Agents
+  # Autonomous entities deviate from intended goals or exhibit misaligned
+  # behavior without external manipulation.
+  # This is the purest agentic threat: spontaneous, autonomous threats from
+  # internal misalignment.
+  # Key defenses: Kill switch + behavior monitoring + governance.
+  # =============================================================================
+
+  - id: AGENT-024
+    title: "Agent Without Kill Switch / Shutdown Mechanism"
+    description: >
+      Agent operates without a kill switch or graceful shutdown mechanism.
+      If the agent drifts from its intended purpose, there is no way to
+      immediately halt its execution (ASI-10).
+    severity: critical
+    category: rogue_agent
+    owasp_agentic_id: "ASI-10"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "no_kill_switch"
+          agent_constructors:
+            - "AgentExecutor"
+            - "Crew"
+            - "AutoGen"
+          combined_missing:
+            - all_of:
+                - "max_iterations"
+                - "max_execution_time"
+                - "timeout"
+                - "early_stopping"
+
+        - pattern_type: "daemon_agent_no_monitor"
+          indicators:
+            - "daemon=True"
+            - "background"
+            - "schedule.every"
+            - "while True"
+          context:
+            - "agent"
+            - "crew"
+          missing_patterns:
+            - "health_check"
+            - "heartbeat"
+            - "monitor"
+            - "watchdog"
+
+    remediation:
+      description: >
+        Implement a non-negotiable, auditable kill switch for all agents.
+        Set max_iterations and max_execution_time. For long-running agents,
+        implement heartbeat monitoring and automatic shutdown on anomaly.
+      code_example: |
+        # GOOD: Agent with kill switch
+        agent = AgentExecutor(
+            agent=agent, tools=tools,
+            max_iterations=25,
+            max_execution_time=600,
+            early_stopping_method="generate",
+            callbacks=[KillSwitchCallback(max_cost=10.0)],
+        )
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  - id: AGENT-025
+    title: "Agent Without Behavioral Monitoring / Logging"
+    description: >
+      Agent actions are not logged or monitored, making it impossible
+      to detect behavioral drift or misaligned actions. Without
+      observability, rogue behavior goes undetected (ASI-10).
+    severity: high
+    category: rogue_agent
+    owasp_agentic_id: "ASI-10"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "agent_without_observability"
+          agent_constructors:
+            - "AgentExecutor"
+            - "initialize_agent"
+            - "Crew"
+          missing_all_of:
+            - "callbacks"
+            - "callback_manager"
+            - "verbose"
+            - "logging"
+            - "tracer"
+            - "langsmith"
+            - "wandb"
+
+    remediation:
+      description: >
+        Implement comprehensive logging of every agent decision, tool
+        call, and state change. Establish behavioral baselines and
+        alert on deviations. Use tracing tools like LangSmith or
+        custom callbacks for full observability.
+      references:
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"

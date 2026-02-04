@@ -198,6 +198,82 @@ class PythonScanner(BaseScanner):
 class PythonASTVisitor(ast.NodeVisitor):
     """AST visitor that extracts security-relevant information."""
 
+    # Prompt-related function names for ASI-01 detection
+    PROMPT_FUNCTIONS: Set[str] = {
+        'SystemMessage', 'HumanMessage', 'AIMessage',
+        'ChatPromptTemplate', 'PromptTemplate',
+        'SystemMessagePromptTemplate',
+        'from_messages', 'from_template',
+    }
+
+    # Variable names that typically hold system prompts
+    SYSTEM_PROMPT_VARNAMES: Set[str] = {
+        'system_prompt', 'system_message', 'instructions',
+        'system_instructions', 'agent_prompt', 'system_content',
+        'sys_prompt', 'base_prompt',
+    }
+
+    # Memory write functions for ASI-06 detection
+    MEMORY_WRITE_FUNCTIONS: Set[str] = {
+        'add_documents', 'add_texts', 'upsert', 'insert',
+        'persist', 'save_context', 'add_message', 'add_memory',
+        'store', 'put', 'set',
+    }
+
+    # Unbounded memory classes for ASI-06 detection
+    UNBOUNDED_MEMORY_CLASSES: Set[str] = {
+        'ConversationBufferMemory',
+        'ConversationSummaryMemory',
+        'ChatMessageHistory',
+    }
+
+    # Agent constructor functions for ASI-08/10 detection
+    AGENT_CONSTRUCTORS: Set[str] = {
+        'AgentExecutor', 'initialize_agent', 'create_react_agent',
+        'create_openai_functions_agent', 'Crew',
+    }
+
+    # Auto-approval keywords for ASI-03 detection
+    AUTO_APPROVAL_KEYWORDS: Set[str] = {
+        'trust_all_tools', 'auto_approve', 'no_confirm',
+        'skip_approval', 'dangerously_skip_permissions',
+        'no_interactive', 'trust_all',
+    }
+
+    # Multi-agent classes for ASI-07 detection
+    MULTI_AGENT_CLASSES: Set[str] = {
+        'GroupChat', 'GroupChatManager', 'ConversableAgent',
+        'Crew', 'Agent',
+    }
+
+    # Authentication-related keyword arguments for ASI-07 detection
+    AUTH_KEYWORDS: Set[str] = {
+        'authentication', 'tls', 'verify', 'auth',
+        'secure_channel', 'ssl', 'https',
+    }
+
+    # Agent communication context keywords for ASI-07 detection
+    AGENT_COMM_KEYWORDS: Set[str] = {
+        'agent', 'delegate', 'handoff', 'message',
+        'endpoint', 'server', 'worker', 'peer',
+    }
+
+    # Transparency-related keyword arguments for ASI-09 detection
+    TRANSPARENCY_KEYWORDS: Set[str] = {
+        'return_intermediate_steps', 'verbose',
+        'return_source_documents', 'include_reasoning',
+    }
+
+    # External call functions for ASI-08 tool error handling detection
+    EXTERNAL_CALL_FUNCTIONS: Set[str] = {
+        'requests.get', 'requests.post', 'requests.put', 'requests.delete',
+        'httpx.get', 'httpx.post', 'httpx.put', 'httpx.delete',
+        'urllib.request.urlopen', 'aiohttp.ClientSession',
+        'subprocess.run', 'subprocess.Popen', 'subprocess.call',
+        'os.system', 'os.popen',
+        'open',
+    }
+
     def __init__(self, file_path: Path, source: str):
         self.file_path = file_path
         self.source = source
@@ -215,6 +291,8 @@ class PythonASTVisitor(ast.NodeVisitor):
         self._current_function_params: Set[str] = set()
         # Track current class for tool detection
         self._current_class: Optional[str] = None
+        # Track if inside @tool decorated function (ASI-05)
+        self._in_tool_function: bool = False
 
     def visit_Import(self, node: ast.Import):
         """Track imports like 'import subprocess'."""
@@ -259,6 +337,7 @@ class PythonASTVisitor(ast.NodeVisitor):
         """Visit function definitions to detect @tool decorators."""
         old_func = self._current_function
         old_params = self._current_function_params
+        old_in_tool = self._in_tool_function
 
         self._current_function = node.name
         self._current_function_params = {
@@ -266,20 +345,38 @@ class PythonASTVisitor(ast.NodeVisitor):
         }
 
         # Check for @tool decorator
-        if self._has_tool_decorator(node):
+        is_tool = self._has_tool_decorator(node)
+        self._in_tool_function = is_tool
+
+        if is_tool:
             tool = self._extract_tool_from_function(node)
             if tool:
                 self.tools.append(tool)
+
+            # ASI-08: Check for tool without error handling
+            err_finding = self._check_tool_without_error_handling(node)
+            if err_finding:
+                self.dangerous_patterns.append(err_finding)
 
         self.generic_visit(node)
 
         self._current_function = old_func
         self._current_function_params = old_params
+        self._in_tool_function = old_in_tool
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
         """Handle async function definitions the same as regular functions."""
         # Reuse the same logic as FunctionDef - cast to satisfy type checker
         self.visit_FunctionDef(node)  # type: ignore[arg-type]
+
+    def visit_Assign(self, node: ast.Assign):
+        """Visit assignment statements to detect system prompt concatenation."""
+        # ASI-01: Check for system prompt constructed via string operations
+        finding = self._check_system_prompt_concat(node)
+        if finding:
+            self.dangerous_patterns.append(finding)
+
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call):
         """Visit function calls to detect dangerous patterns."""
@@ -321,6 +418,61 @@ class PythonASTVisitor(ast.NodeVisitor):
                         'in_function': self._current_function,
                     }
                     self.dangerous_patterns.append(pattern)
+
+            # === OWASP Agentic Top 10 detections ===
+
+            # ASI-01: Prompt injection vector
+            pi_finding = self._check_prompt_injection_vector(node)
+            if pi_finding:
+                self.dangerous_patterns.append(pi_finding)
+
+            # ASI-03: Excessive tools / auto-approval
+            et_finding = self._check_excessive_tools(node)
+            if et_finding:
+                self.dangerous_patterns.append(et_finding)
+
+            # ASI-05: Unsandboxed code execution in tool context
+            rce_finding = self._check_unsandboxed_code_exec(node)
+            if rce_finding:
+                self.dangerous_patterns.append(rce_finding)
+
+            # ASI-06: Memory poisoning
+            mem_finding = self._check_memory_poisoning(node)
+            if mem_finding:
+                self.dangerous_patterns.append(mem_finding)
+
+            mem_unbound = self._check_unbounded_memory(node)
+            if mem_unbound:
+                self.dangerous_patterns.append(mem_unbound)
+
+            # ASI-08: Missing circuit breaker
+            cb_finding = self._check_missing_circuit_breaker(node)
+            if cb_finding:
+                self.dangerous_patterns.append(cb_finding)
+
+            # ASI-10: Missing kill switch / observability
+            ks_finding = self._check_missing_kill_switch(node)
+            if ks_finding:
+                self.dangerous_patterns.append(ks_finding)
+
+            obs_finding = self._check_missing_observability(node)
+            if obs_finding:
+                self.dangerous_patterns.append(obs_finding)
+
+            # ASI-07: Inter-agent communication without authentication
+            ia_finding = self._check_multi_agent_no_auth(node)
+            if ia_finding:
+                self.dangerous_patterns.append(ia_finding)
+
+            # ASI-07: Unencrypted agent communication
+            tls_finding = self._check_agent_comm_no_tls(node)
+            if tls_finding:
+                self.dangerous_patterns.append(tls_finding)
+
+            # ASI-09: Opaque agent output
+            oa_finding = self._check_opaque_agent_output(node)
+            if oa_finding:
+                self.dangerous_patterns.append(oa_finding)
 
         self.generic_visit(node)
 
@@ -542,3 +694,512 @@ class PythonASTVisitor(ast.NodeVisitor):
         if 0 < lineno <= len(self.source_lines):
             return self.source_lines[lineno - 1].strip()
         return ""
+
+    # =========================================================================
+    # OWASP Agentic Top 10 Detection Methods
+    # =========================================================================
+
+    def _check_prompt_injection_vector(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-01: Detect prompt functions containing f-strings or format calls.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        # Check if this is a prompt-related function
+        is_prompt_func = any(pf in func_name for pf in self.PROMPT_FUNCTIONS)
+        if not is_prompt_func:
+            return None
+
+        # Check arguments for f-strings (JoinedStr)
+        for arg in node.args:
+            if isinstance(arg, ast.JoinedStr):
+                return {
+                    'type': 'prompt_injection_fstring',
+                    'function': func_name,
+                    'line': node.lineno,
+                    'snippet': self._get_line(node.lineno),
+                    'risk': 'User input may be interpolated into prompt via f-string',
+                    'owasp_id': 'ASI-01',
+                }
+
+        # Check keyword arguments for f-strings
+        for kw in node.keywords:
+            if kw.arg in ('content', 'template', 'messages', 'system_message'):
+                if isinstance(kw.value, ast.JoinedStr):
+                    return {
+                        'type': 'prompt_injection_fstring_kwarg',
+                        'function': func_name,
+                        'keyword': kw.arg,
+                        'line': node.lineno,
+                        'snippet': self._get_line(node.lineno),
+                        'owasp_id': 'ASI-01',
+                    }
+
+        # Check for .format() calls in arguments
+        for arg in node.args:
+            if isinstance(arg, ast.Call):
+                inner_name = self._get_call_name(arg)
+                if inner_name and inner_name.endswith('.format'):
+                    return {
+                        'type': 'prompt_injection_format',
+                        'function': func_name,
+                        'line': node.lineno,
+                        'snippet': self._get_line(node.lineno),
+                        'owasp_id': 'ASI-01',
+                    }
+
+        return None
+
+    def _check_system_prompt_concat(self, node: ast.Assign) -> Optional[Dict[str, Any]]:
+        """
+        ASI-01: Detect system_prompt variable constructed via string concatenation.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            varname = target.id.lower()
+            if varname not in self.SYSTEM_PROMPT_VARNAMES:
+                continue
+
+            # Check for f-string
+            if isinstance(node.value, ast.JoinedStr):
+                return {
+                    'type': 'system_prompt_fstring',
+                    'variable': target.id,
+                    'line': node.lineno,
+                    'snippet': self._get_line(node.lineno),
+                    'owasp_id': 'ASI-01',
+                }
+
+            # Check for + concatenation
+            if isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.Add):
+                return {
+                    'type': 'system_prompt_concat',
+                    'variable': target.id,
+                    'line': node.lineno,
+                    'snippet': self._get_line(node.lineno),
+                    'owasp_id': 'ASI-01',
+                }
+
+            # Check for .format() call
+            if isinstance(node.value, ast.Call):
+                call_name = self._get_call_name(node.value)
+                if call_name and call_name.endswith('.format'):
+                    return {
+                        'type': 'system_prompt_format',
+                        'variable': target.id,
+                        'line': node.lineno,
+                        'snippet': self._get_line(node.lineno),
+                        'owasp_id': 'ASI-01',
+                    }
+
+        return None
+
+    def _check_excessive_tools(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-03: Detect agents with too many tools or auto-approval mode.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        if not any(ac in func_name for ac in self.AGENT_CONSTRUCTORS):
+            return None
+
+        # Check tools parameter for excessive count
+        for kw in node.keywords:
+            if kw.arg == 'tools':
+                if isinstance(kw.value, ast.List) and len(kw.value.elts) > 10:
+                    return {
+                        'type': 'excessive_tools',
+                        'function': func_name,
+                        'tool_count': len(kw.value.elts),
+                        'line': node.lineno,
+                        'snippet': self._get_line(node.lineno),
+                        'owasp_id': 'ASI-03',
+                    }
+
+            # Check for auto-approval keywords
+            if kw.arg:
+                arg_lower = kw.arg.lower().replace('-', '_')
+                if arg_lower in self.AUTO_APPROVAL_KEYWORDS:
+                    if isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                        return {
+                            'type': 'auto_approval',
+                            'keyword': kw.arg,
+                            'function': func_name,
+                            'line': node.lineno,
+                            'snippet': self._get_line(node.lineno),
+                            'owasp_id': 'ASI-03',
+                        }
+
+        return None
+
+    def _check_unsandboxed_code_exec(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-05: Detect eval/exec inside @tool decorated functions.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        if func_name not in ('eval', 'exec', 'compile'):
+            return None
+
+        # Only flag if inside a tool function
+        if self._in_tool_function:
+            return {
+                'type': 'unsandboxed_code_exec_in_tool',
+                'function': func_name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-05',
+            }
+
+        return None
+
+    def _check_memory_poisoning(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-06: Detect unsanitized writes to vector databases or memory stores.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        # Extract method name (last part after dot)
+        method_name = func_name.split('.')[-1] if '.' in func_name else func_name
+
+        if method_name not in self.MEMORY_WRITE_FUNCTIONS:
+            return None
+
+        # Check if arguments contain variable references (potential user input)
+        has_variable_input = False
+        for arg in node.args:
+            if isinstance(arg, (ast.Name, ast.Subscript, ast.Attribute)):
+                has_variable_input = True
+                break
+            if isinstance(arg, ast.List):
+                for elt in arg.elts:
+                    if isinstance(elt, (ast.Name, ast.Subscript, ast.Attribute)):
+                        has_variable_input = True
+                        break
+
+        if has_variable_input:
+            return {
+                'type': 'unsanitized_memory_write',
+                'function': func_name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-06',
+            }
+
+        return None
+
+    def _check_unbounded_memory(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-06: Detect unbounded memory configurations.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        if func_name not in self.UNBOUNDED_MEMORY_CLASSES:
+            return None
+
+        # Check if memory has bounds configured
+        has_limit = False
+        for kw in node.keywords:
+            if kw.arg in ('k', 'max_token_limit', 'max_history', 'window_size'):
+                has_limit = True
+                break
+
+        if not has_limit:
+            return {
+                'type': 'unbounded_memory',
+                'class': func_name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-06',
+            }
+
+        return None
+
+    def _check_missing_circuit_breaker(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-08: Detect AgentExecutor without max_iterations or timeout.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        if func_name not in self.AGENT_CONSTRUCTORS:
+            return None
+
+        has_limit = False
+        for kw in node.keywords:
+            if kw.arg in ('max_iterations', 'max_execution_time', 'max_steps', 'timeout'):
+                has_limit = True
+                break
+
+        if not has_limit:
+            return {
+                'type': 'missing_circuit_breaker',
+                'function': func_name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-08',
+            }
+
+        return None
+
+    def _check_missing_kill_switch(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-10: Detect agent without kill switch (execution limits).
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        if func_name not in self.AGENT_CONSTRUCTORS:
+            return None
+
+        kw_names = {kw.arg for kw in node.keywords if kw.arg}
+
+        # Check for kill switch params
+        kill_switch_params = {'max_iterations', 'max_execution_time', 'timeout', 'early_stopping_method'}
+        has_kill_switch = bool(kw_names & kill_switch_params)
+
+        if not has_kill_switch:
+            return {
+                'type': 'no_kill_switch',
+                'function': func_name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-10',
+            }
+
+        return None
+
+    def _check_missing_observability(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-10: Detect agent without observability (callbacks, verbose, logging).
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        if func_name not in self.AGENT_CONSTRUCTORS:
+            return None
+
+        kw_names = {kw.arg for kw in node.keywords if kw.arg}
+
+        # Check for observability params
+        observability_params = {'callbacks', 'callback_manager', 'verbose'}
+        has_observability = bool(kw_names & observability_params)
+
+        if not has_observability:
+            return {
+                'type': 'no_observability',
+                'function': func_name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-10',
+            }
+
+        return None
+
+    def _check_multi_agent_no_auth(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-07: Detect multi-agent classes without authentication configuration.
+
+        Checks GroupChat, GroupChatManager, ConversableAgent (autogen) or
+        Crew, Agent (crewai) instantiation for missing auth-related params.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        # Check if this is a multi-agent class
+        if func_name not in self.MULTI_AGENT_CLASSES:
+            return None
+
+        # Check for authentication-related keyword arguments
+        kw_names = {kw.arg.lower() for kw in node.keywords if kw.arg}
+        has_auth = bool(kw_names & self.AUTH_KEYWORDS)
+
+        if not has_auth:
+            return {
+                'type': 'multi_agent_no_auth',
+                'function': func_name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-07',
+            }
+
+        return None
+
+    def _check_agent_comm_no_tls(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-07: Detect agent communication over unencrypted HTTP.
+
+        Checks for http:// string literals in contexts related to agent communication.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        # Check string arguments for http:// URLs
+        for arg in node.args:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                if arg.value.startswith('http://'):
+                    # Check if in agent communication context
+                    func_name = self._get_call_name(node) or ''
+                    in_agent_context = any(
+                        kw in func_name.lower() for kw in self.AGENT_COMM_KEYWORDS
+                    )
+                    # Also check current function name
+                    if self._current_function:
+                        in_agent_context = in_agent_context or any(
+                            kw in self._current_function.lower()
+                            for kw in self.AGENT_COMM_KEYWORDS
+                        )
+                    # Check keyword argument names
+                    for kw in node.keywords:
+                        if kw.arg and any(
+                            ak in kw.arg.lower() for ak in self.AGENT_COMM_KEYWORDS
+                        ):
+                            in_agent_context = True
+                            break
+
+                    if in_agent_context:
+                        return {
+                            'type': 'agent_comm_no_tls',
+                            'url': arg.value,
+                            'line': node.lineno,
+                            'snippet': self._get_line(node.lineno),
+                            'owasp_id': 'ASI-07',
+                            'confidence': 0.6,  # Lower confidence
+                        }
+
+        # Also check keyword arguments
+        for kw in node.keywords:
+            if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                if kw.value.value.startswith('http://'):
+                    if kw.arg and any(
+                        ak in kw.arg.lower() for ak in self.AGENT_COMM_KEYWORDS
+                    ):
+                        return {
+                            'type': 'agent_comm_no_tls',
+                            'url': kw.value.value,
+                            'keyword': kw.arg,
+                            'line': node.lineno,
+                            'snippet': self._get_line(node.lineno),
+                            'owasp_id': 'ASI-07',
+                            'confidence': 0.6,
+                        }
+
+        return None
+
+    def _check_opaque_agent_output(self, node: ast.Call) -> Optional[Dict[str, Any]]:
+        """
+        ASI-09: Detect AgentExecutor without transparency configuration.
+
+        Checks for missing return_intermediate_steps, verbose, or similar params.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        # Only check AgentExecutor specifically for transparency
+        if func_name != 'AgentExecutor':
+            return None
+
+        # Check for transparency-related keyword arguments
+        kw_names = {kw.arg for kw in node.keywords if kw.arg}
+        has_transparency = bool(kw_names & self.TRANSPARENCY_KEYWORDS)
+
+        if not has_transparency:
+            return {
+                'type': 'opaque_agent_output',
+                'function': func_name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-09',
+            }
+
+        return None
+
+    def _check_tool_without_error_handling(
+        self, node: ast.FunctionDef
+    ) -> Optional[Dict[str, Any]]:
+        """
+        ASI-08: Detect @tool decorated functions without try/except.
+
+        Checks if a tool function calls external operations (network, file, subprocess)
+        without proper error handling.
+
+        Args:
+            node: Function definition AST node
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        # Must have @tool decorator
+        if not self._has_tool_decorator(node):
+            return None
+
+        # Check if function calls external operations
+        has_external_call = False
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call):
+                call_name = self._get_call_name(child)
+                if call_name:
+                    # Check full name or method name suffix
+                    if call_name in self.EXTERNAL_CALL_FUNCTIONS or any(
+                        call_name.endswith(f'.{fn.split(".")[-1]}')
+                        for fn in self.EXTERNAL_CALL_FUNCTIONS
+                    ):
+                        has_external_call = True
+                        break
+
+        if not has_external_call:
+            return None
+
+        # Check if function has try/except
+        has_try_except = False
+        for child in ast.walk(node):
+            if isinstance(child, ast.Try):
+                has_try_except = True
+                break
+
+        if not has_try_except:
+            return {
+                'type': 'tool_without_error_handling',
+                'function': node.name,
+                'line': node.lineno,
+                'snippet': self._get_line(node.lineno),
+                'owasp_id': 'ASI-08',
+            }
+
+        return None

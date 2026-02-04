@@ -7,6 +7,21 @@ from typing import Optional, Dict, Any
 from agent_audit.models.risk import Severity, Category, Location
 
 
+# OWASP Agentic Top 10 (2026) ID to name mapping
+OWASP_AGENTIC_MAP: Dict[str, str] = {
+    "ASI-01": "Agent Goal Hijack",
+    "ASI-02": "Tool Misuse and Exploitation",
+    "ASI-03": "Identity and Privilege Abuse",
+    "ASI-04": "Agentic Supply Chain Vulnerabilities",
+    "ASI-05": "Unexpected Code Execution",
+    "ASI-06": "Memory and Context Poisoning",
+    "ASI-07": "Insecure Inter-Agent Communication",
+    "ASI-08": "Cascading Failures",
+    "ASI-09": "Human-Agent Trust Exploitation",
+    "ASI-10": "Rogue Agents",
+}
+
+
 @dataclass
 class Remediation:
     """Remediation guidance for a finding."""

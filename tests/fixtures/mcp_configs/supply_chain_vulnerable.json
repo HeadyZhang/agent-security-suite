@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "risky-server": {
+      "command": "npx",
+      "args": ["-y", "some-unknown-mcp-package"]
+    },
+    "unpinned": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest"]
+    },
+    "insecure-http": {
+      "command": "node",
+      "args": ["http://some-server.com/mcp.js"]
+    },
+    "safe-server": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem@1.2.0", "/tmp"]
+    }
+  }
+}

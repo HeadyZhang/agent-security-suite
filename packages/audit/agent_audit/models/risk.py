@@ -34,6 +34,7 @@ class Severity(Enum):
 
 class Category(Enum):
     """Categories for security findings."""
+    # Original categories
     COMMAND_INJECTION = "command_injection"
     DATA_EXFILTRATION = "data_exfiltration"
     PRIVILEGE_ESCALATION = "privilege_escalation"
@@ -41,6 +42,18 @@ class Category(Enum):
     CREDENTIAL_EXPOSURE = "credential_exposure"
     PROMPT_INJECTION = "prompt_injection"
     EXCESSIVE_PERMISSION = "excessive_permission"
+
+    # OWASP Agentic Top 10 (2026) extended categories
+    GOAL_HIJACK = "goal_hijack"                              # ASI-01
+    TOOL_MISUSE = "tool_misuse"                              # ASI-02
+    IDENTITY_PRIVILEGE_ABUSE = "identity_privilege_abuse"    # ASI-03
+    SUPPLY_CHAIN_AGENTIC = "supply_chain_agentic"            # ASI-04
+    UNEXPECTED_CODE_EXECUTION = "unexpected_code_execution"  # ASI-05
+    MEMORY_POISONING = "memory_poisoning"                    # ASI-06
+    INSECURE_INTER_AGENT_COMM = "insecure_inter_agent_comm"  # ASI-07
+    CASCADING_FAILURES = "cascading_failures"                # ASI-08
+    TRUST_EXPLOITATION = "trust_exploitation"                # ASI-09
+    ROGUE_AGENT = "rogue_agent"                              # ASI-10
 
 
 @dataclass

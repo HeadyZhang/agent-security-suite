@@ -30,6 +30,7 @@ def run_scan(
     fail_on_severity: str,
     baseline_path: Optional[Path] = None,
     save_baseline_path: Optional[Path] = None,
+    rules_dir: Optional[Path] = None,
     verbose: bool = False,
     quiet: bool = False
 ) -> int:
@@ -42,7 +43,7 @@ def run_scan(
     ignore_manager = IgnoreManager()
     config_loaded = ignore_manager.load(path)
 
-    if verbose and config_loaded:
+    if verbose and config_loaded and output_format == "terminal":
         console.print(f"[dim]Loaded config from: {ignore_manager._loaded_from}[/dim]")
 
     # Get exclude patterns from config
@@ -58,9 +59,9 @@ def run_scan(
 
     # Find rules directory - check multiple possible locations
     possible_rules_dirs = [
-        # Relative to this file (installed package)
-        Path(__file__).parent.parent.parent.parent.parent.parent.parent / "rules" / "builtin",
-        # Relative to project root (development)
+        # Inside the package (installed via pip/wheel)
+        Path(__file__).parent.parent / "rules" / "builtin",
+        # Project root rules dir (development mode, symlink-installed)
         Path(__file__).resolve().parent.parent.parent.parent.parent.parent.parent / "rules" / "builtin",
         # Relative to current working directory
         Path.cwd() / "rules" / "builtin",
@@ -68,19 +69,26 @@ def run_scan(
         Path.cwd().parent.parent / "rules" / "builtin",
     ]
 
-    for rules_dir in possible_rules_dirs:
-        if rules_dir.exists():
-            rule_engine.add_builtin_rules_dir(rules_dir)
+    for builtin_dir in possible_rules_dirs:
+        if builtin_dir.exists():
+            rule_engine.add_builtin_rules_dir(builtin_dir)
             break
 
-    rule_engine.load_rules()
+    # Load custom rules if --rules-dir is specified
+    custom_rules_dirs: Optional[List[Path]] = None
+    if rules_dir and rules_dir.exists():
+        custom_rules_dirs = [rules_dir]
+        if not quiet and output_format == "terminal":
+            console.print(f"[dim]Loading custom rules from: {rules_dir}[/dim]")
+
+    rule_engine.load_rules(additional_dirs=custom_rules_dirs)
 
     # Collect all findings
     all_findings: List[Finding] = []
     scanned_files = 0
 
     # Run Python scanner
-    if not quiet:
+    if not quiet and output_format == "terminal":
         console.print("[dim]Scanning Python files...[/dim]")
 
     python_results = python_scanner.scan(path)
@@ -111,7 +119,7 @@ def run_scan(
             all_findings.extend(perm_findings)
 
     # Run MCP config scanner
-    if not quiet:
+    if not quiet and output_format == "terminal":
         console.print("[dim]Scanning MCP configurations...[/dim]")
 
     mcp_results = mcp_scanner.scan(path)
@@ -136,7 +144,7 @@ def run_scan(
         all_findings.extend(mcp_findings)
 
     # Run secret scanner
-    if not quiet:
+    if not quiet and output_format == "terminal":
         console.print("[dim]Scanning for secrets...[/dim]")
 
     secret_results = secret_scanner.scan(path)
@@ -175,7 +183,7 @@ def run_scan(
     if baseline_path and baseline_path.exists():
         baseline = load_baseline(baseline_path)
         all_findings = filter_by_baseline(all_findings, baseline)
-        if not quiet:
+        if not quiet and output_format == "terminal":
             console.print(f"[dim]Filtered by baseline: {baseline_path}[/dim]")
 
     # Filter by minimum severity
@@ -191,7 +199,7 @@ def run_scan(
     # Save baseline if requested
     if save_baseline_path:
         save_baseline(all_findings, save_baseline_path)
-        if not quiet:
+        if not quiet and output_format == "terminal":
             console.print(f"[dim]Saved baseline to: {save_baseline_path}[/dim]")
 
     # Output results
@@ -209,7 +217,7 @@ def run_scan(
         if output_path:
             output_path.write_text(json_output, encoding="utf-8")
         else:
-            console.print(json_output)
+            click.echo(json_output)
     elif output_format == "sarif":
         from agent_audit.cli.formatters.sarif import SARIFFormatter
         formatter = SARIFFormatter()
@@ -285,6 +293,8 @@ def _output_markdown(findings: List[Finding], scan_path: str, output_path: Optio
               default='low', help='Minimum severity to report')
 @click.option('--rules', '-r', type=click.Path(exists=True),
               multiple=True, help='Additional rule files')
+@click.option('--rules-dir', type=click.Path(exists=True, file_okay=False),
+              help='Directory containing custom YAML rule files')
 @click.option('--fail-on',
               type=click.Choice(['critical', 'high', 'medium', 'low']),
               default='high', help='Exit with error if findings at this level')
@@ -294,8 +304,8 @@ def _output_markdown(findings: List[Finding], scan_path: str, output_path: Optio
               help='Save current findings as baseline')
 @click.pass_context
 def scan(ctx: click.Context, path: str, output_format: str, output: Optional[str],
-         severity: str, rules: tuple, fail_on: str, baseline: Optional[str],
-         save_baseline: Optional[str]):
+         severity: str, rules: tuple, rules_dir: Optional[str], fail_on: str,
+         baseline: Optional[str], save_baseline: Optional[str]):
     """
     Scan agent code and configurations for security issues.
 
@@ -322,6 +332,7 @@ def scan(ctx: click.Context, path: str, output_format: str, output: Optional[str
         fail_on_severity=fail_on,
         baseline_path=Path(baseline) if baseline else None,
         save_baseline_path=Path(save_baseline) if save_baseline else None,
+        rules_dir=Path(rules_dir) if rules_dir else None,
         verbose=ctx.obj.get('verbose', False),
         quiet=ctx.obj.get('quiet', False)
     )
