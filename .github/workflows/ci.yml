@@ -54,7 +54,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install linters
-        run: pip install ruff mypy
+        run: pip install ruff mypy types-PyYAML
 
       - name: Run ruff
         run: ruff check packages/audit --output-format=github
