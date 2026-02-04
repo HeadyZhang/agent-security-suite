@@ -29,15 +29,12 @@ jobs:
           virtualenvs-in-project: true
 
       - name: Install dependencies
-        run: |
-          cd packages/audit
-          poetry install
+        working-directory: packages/audit
+        run: poetry install
 
       - name: Run tests
-        run: |
-          cd packages/audit
-          poetry run pytest tests/ -v --cov=agent_audit --cov-report=xml
-        continue-on-error: true
+        working-directory: packages/audit
+        run: poetry run pytest ../../tests/ -v --cov=agent_audit --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -63,8 +60,7 @@ jobs:
         run: ruff check packages/audit --output-format=github
 
       - name: Run mypy
-        run: mypy packages/audit --ignore-missing-imports
-        continue-on-error: true
+        run: mypy packages/audit/agent_audit --ignore-missing-imports
 
   security-scan:
     runs-on: ubuntu-latest
@@ -84,14 +80,13 @@ jobs:
           virtualenvs-in-project: true
 
       - name: Install agent-audit
-        run: |
-          cd packages/audit
-          poetry install
+        working-directory: packages/audit
+        run: poetry install
 
       - name: Run agent-audit self-scan
-        run: |
-          cd packages/audit
-          poetry run agent-audit scan . --format sarif --output agent-audit-results.sarif || true
+        working-directory: packages/audit
+        # Self-scan finds false positives in its own regex patterns; don't fail CI
+        run: poetry run agent-audit scan . --format sarif --output agent-audit-results.sarif || true
 
       - name: Upload SARIF to GitHub
         uses: github/codeql-action/upload-sarif@v3

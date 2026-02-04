@@ -14,3 +14,7 @@ venv/
 htmlcov/
 .coverage
 *.sarif
+
+# Internal development docs
+CLAUDE.md
+specs/

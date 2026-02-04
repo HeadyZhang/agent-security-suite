@@ -172,8 +172,8 @@ cd agent-audit
 cd packages/audit
 poetry install
 
-# Run tests | 运行测试
-poetry run pytest tests/ -v
+# Run tests (tests are at project root) | 运行测试（测试在项目根目录）
+poetry run pytest ../../tests/ -v
 
 # Run the scanner | 运行扫描器
 poetry run agent-audit scan .
