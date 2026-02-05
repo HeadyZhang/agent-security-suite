@@ -116,6 +116,9 @@ class RuleEngine:
         'ssrf_expanded': 'AGENT-026',            # SSRF outside @tool
         'subprocess_expanded': 'AGENT-034',      # Subprocess outside @tool
         'network_request_hardcoded_url': 'AGENT-026',  # Hardcoded URL (low confidence)
+
+        # v0.9.0: Supply chain security
+        'unsafe_deserialization': 'AGENT-049',   # Pickle/torch/joblib load
     }
 
     # v0.3.0: MCP finding type to rule metadata

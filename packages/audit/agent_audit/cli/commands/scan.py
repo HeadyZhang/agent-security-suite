@@ -6,7 +6,7 @@ from typing import Optional, List
 import click
 from rich.console import Console
 
-from agent_audit.models.finding import Finding
+from agent_audit.models.finding import Finding, deduplicate_findings
 from agent_audit.models.risk import Severity
 from agent_audit.rules.engine import RuleEngine
 
@@ -239,6 +239,15 @@ def run_scan(
 
     privilege_findings = privilege_scanner.scan_and_convert(path)
     all_findings.extend(privilege_findings)
+
+    # v0.9.0: Deduplicate findings (same-line, rule subsumption)
+    # This reduces noise from redundant findings like AGENT-001 + AGENT-047 + AGENT-034
+    # all firing on the same subprocess.run(shell=True) line
+    findings_before = len(all_findings)
+    all_findings = deduplicate_findings(all_findings)
+    findings_deduped = findings_before - len(all_findings)
+    if verbose and findings_deduped > 0 and output_format == "terminal":
+        console.print(f"[dim]Deduplicated {findings_deduped} redundant findings[/dim]")
 
     # Apply ignore rules
     for finding in all_findings:

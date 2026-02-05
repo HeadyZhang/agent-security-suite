@@ -133,6 +133,35 @@ class ContextClassifier:
         (re.compile(r"(^|/)playground/", re.IGNORECASE), "playground directory"),
     ]
 
+    # === v0.9.0: ML DATA FILE patterns (treated as FIXTURE context) ===
+    # These are training/evaluation/benchmark data files that commonly contain
+    # masked credentials and example data that should not be flagged
+    DATA_FILE_PATTERNS: List[Tuple[re.Pattern, str]] = [
+        # Training data files
+        (re.compile(r"train[_-]?\d*\.json$", re.IGNORECASE), "training data JSON"),
+        (re.compile(r"train[_-]?\d*\.jsonl$", re.IGNORECASE), "training data JSONL"),
+        (re.compile(r"training[_-]?data", re.IGNORECASE), "training data path"),
+        # Evaluation data files (not eval scripts - those are production)
+        (re.compile(r"eval[_-]?\d*\.json$", re.IGNORECASE), "eval data JSON"),
+        (re.compile(r"(^|/)eval[_-]?data/", re.IGNORECASE), "eval data directory"),
+        (re.compile(r"(^|/)evaluation[_-]?data/", re.IGNORECASE), "evaluation data directory"),
+        # Benchmark data
+        (re.compile(r"(^|/)benchmark[_-]?data/", re.IGNORECASE), "benchmark data directory"),
+        (re.compile(r"benchmark[_-]?\d*\.json$", re.IGNORECASE), "benchmark data JSON"),
+        # Dataset directories
+        (re.compile(r"(^|/)datasets?/", re.IGNORECASE), "dataset directory"),
+        (re.compile(r"(^|/)data/.*\.json$", re.IGNORECASE), "data JSON file"),
+        # Corpus files (NLP training)
+        (re.compile(r"(^|/)corpus/", re.IGNORECASE), "corpus directory"),
+        # v0.9.0 Gorilla-specific patterns
+        (re.compile(r"openfunctions.*\.json$", re.IGNORECASE), "openfunctions data"),
+        (re.compile(r"gorilla_openfunctions", re.IGNORECASE), "gorilla training data"),
+        # Evaluation/rating data files
+        (re.compile(r"(^|/)evaluat[a-z]*/.*\.json$", re.IGNORECASE), "evaluation data"),
+        (re.compile(r"_ratings.*\.json$", re.IGNORECASE), "ratings data"),
+        (re.compile(r"agent[_-]?ratings", re.IGNORECASE), "agent ratings data"),
+    ]
+
     # === TEMPLATE patterns ===
     TEMPLATE_PATTERNS: List[Tuple[re.Pattern, str]] = [
         (re.compile(r"\.example$", re.IGNORECASE), ".example file"),
@@ -148,9 +177,11 @@ class ContextClassifier:
     def __init__(self) -> None:
         """Initialize the context classifier."""
         # Pre-compile the ordered pattern groups
+        # v0.9.0: Added DATA_FILE_PATTERNS as FIXTURE context (before TEST)
         self._pattern_groups: List[Tuple[FileContext, List[Tuple[re.Pattern, str]]]] = [
             (FileContext.VENDOR, self.VENDOR_PATTERNS),
             (FileContext.FIXTURE, self.FIXTURE_PATTERNS),  # Check fixture before test
+            (FileContext.FIXTURE, self.DATA_FILE_PATTERNS),  # v0.9.0: ML data files as FIXTURE
             (FileContext.TEST, self.TEST_PATH_PATTERNS),
             (FileContext.INFRASTRUCTURE, self.INFRASTRUCTURE_PATTERNS),
             (FileContext.DOCUMENTATION, self.DOCUMENTATION_PATTERNS),
@@ -164,6 +195,18 @@ class ContextClassifier:
         re.compile(r"/vuln[_-]?", re.IGNORECASE),        # vuln_examples
         re.compile(r"/insecure[_-]?", re.IGNORECASE),    # insecure_code
         re.compile(r"/bad[_-]?examples?/", re.IGNORECASE),  # bad_examples
+    ]
+
+    # v0.9.0: Patterns that indicate IMPLEMENTATION code (should NOT be downgraded)
+    # Even if parent path contains eval/, these are real implementation files
+    IMPLEMENTATION_EXEMPT_PATTERNS: List[re.Pattern] = [
+        re.compile(r"/tasks/impl/", re.IGNORECASE),      # task implementation code
+        re.compile(r"/tasks/[^/]+/impl/", re.IGNORECASE),  # nested impl paths
+        re.compile(r"/tools/[^/]+\.py$", re.IGNORECASE),   # tool implementations
+        re.compile(r"/src/", re.IGNORECASE),             # source code
+        re.compile(r"/lib/[^/]+\.py$", re.IGNORECASE),   # library code
+        re.compile(r"/core/", re.IGNORECASE),            # core code
+        re.compile(r"/agent/", re.IGNORECASE),           # agent code
     ]
 
     def classify(self, file_path: str) -> FileContext:
@@ -183,6 +226,12 @@ class ContextClassifier:
         # These are intentionally vulnerable code samples for testing the scanner
         for exempt_pattern in self.VULNERABLE_EXEMPT_PATTERNS:
             if exempt_pattern.search(normalized_path):
+                return FileContext.PRODUCTION
+
+        # v0.9.0: Exempt implementation code paths (e.g., eval/tasks/impl/)
+        # These contain real code that should not be downgraded even if in eval/ directory
+        for impl_pattern in self.IMPLEMENTATION_EXEMPT_PATTERNS:
+            if impl_pattern.search(normalized_path):
                 return FileContext.PRODUCTION
 
         # Check each pattern group in priority order

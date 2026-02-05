@@ -360,3 +360,66 @@ rules:
         }
       references:
         - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"
+
+  # =============================================================================
+  # ASI-04: Agentic Supply Chain Vulnerabilities (v0.9.0)
+  # =============================================================================
+
+  - id: AGENT-049
+    title: "Unsafe Deserialization in Agent Code"
+    description: >
+      The code uses unsafe deserialization functions (pickle.load, torch.load,
+      joblib.load, etc.) that can execute arbitrary code when loading untrusted
+      data. In agentic contexts, this is especially dangerous as agents may
+      load model checkpoints, state files, or data from untrusted sources.
+    severity: high
+    category: supply_chain_agentic
+    owasp_agentic_id: "ASI-04"
+    cwe_id: "CWE-502"
+
+    detection:
+      type: ast
+      patterns:
+        - pattern_type: "unsafe_deserialization"
+          functions:
+            - "pickle.load"
+            - "pickle.loads"
+            - "torch.load"
+            - "joblib.load"
+            - "dill.load"
+            - "dill.loads"
+            - "cloudpickle.load"
+            - "cloudpickle.loads"
+            - "pd.read_pickle"
+            - "numpy.load"
+
+    remediation:
+      description: >
+        Avoid using pickle-based deserialization for untrusted data. Use safer
+        alternatives like JSON, safetensors (for models), or verify data sources.
+        For PyTorch, use weights_only=True when possible. For numpy, avoid
+        allow_pickle=True.
+      code_example: |
+        # BAD: Unsafe deserialization
+        import pickle
+        with open('agent_state.pkl', 'rb') as f:
+            state = pickle.load(f)  # Arbitrary code execution risk
+
+        model = torch.load('model.pt')  # Unsafe
+
+        # GOOD: Safe alternatives
+        import json
+        with open('agent_state.json', 'r') as f:
+            state = json.load(f)  # Safe
+
+        # For PyTorch 2.x:
+        model = torch.load('model.pt', weights_only=True)  # Safe
+
+        # For tensors, use safetensors:
+        from safetensors import safe_open
+        with safe_open('model.safetensors', framework='pt') as f:
+            tensors = {k: f.get_tensor(k) for k in f.keys()}
+      references:
+        - "https://cwe.mitre.org/data/definitions/502.html"
+        - "https://pytorch.org/docs/stable/notes/security.html"
+        - "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"

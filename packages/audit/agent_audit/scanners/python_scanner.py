@@ -475,6 +475,58 @@ class PythonASTVisitor(ast.NodeVisitor):
         r'impersonate',
     ]
 
+    # v0.9.0: Unsafe deserialization functions (AGENT-049)
+    # These can execute arbitrary code when loading untrusted data
+    UNSAFE_DESERIALIZE_FUNCTIONS: Dict[str, str] = {
+        'pickle.load': 'pickle',
+        'pickle.loads': 'pickle',
+        'torch.load': 'torch',
+        'joblib.load': 'joblib',
+        'dill.load': 'dill',
+        'dill.loads': 'dill',
+        'cloudpickle.load': 'cloudpickle',
+        'cloudpickle.loads': 'cloudpickle',
+        'pd.read_pickle': 'pandas',
+        'pandas.read_pickle': 'pandas',
+    }
+
+    # Safe alternatives to check (reduce confidence if present)
+    SAFE_DESERIALIZE_EVIDENCE: Set[str] = {
+        'weights_only=True',  # torch.load safe mode
+        'safetensors',        # Safe tensor library
+        'json.load',          # Safe JSON
+        'json.loads',
+    }
+
+    # v0.9.0: Expanded Agent context patterns (beyond @tool decorators)
+    # These patterns identify code that interfaces with LLM APIs directly
+    AGENT_CONTEXT_PATTERNS: Dict[str, str] = {
+        # OpenAI API calls
+        'ChatCompletion.create': 'openai_api',
+        'chat.completions.create': 'openai_api',
+        'Completion.create': 'openai_api',
+        'completions.create': 'openai_api',
+        'openai.ChatCompletion': 'openai_api',
+        'openai.Completion': 'openai_api',
+        'client.chat.completions': 'openai_api',
+        'client.completions': 'openai_api',
+        # Anthropic API
+        'messages.create': 'anthropic_api',
+        'anthropic.messages': 'anthropic_api',
+        # Generic LLM patterns
+        '.completion(': 'llm_api',
+        '.generate(': 'llm_api',
+        '.invoke(': 'langchain_api',
+        '.call(': 'langchain_api',
+    }
+
+    # v0.9.0: Agent memory/context patterns for AGENT-018 improvement
+    AGENT_MEMORY_PATTERNS: Set[str] = {
+        'add_message', 'add_memory', 'memory.append', 'memory.add',
+        'context.update', 'history.insert', 'upsert', 'add_documents',
+        'add_document', 'message_sequence', 'chat_history',
+    }
+
     def __init__(self, file_path: Path, source: str):
         self.file_path = file_path
         self.source = source
@@ -496,6 +548,36 @@ class PythonASTVisitor(ast.NodeVisitor):
         self._in_tool_function: bool = False
         # v0.5.0: Track if inside agent framework class
         self._in_agent_framework_class: bool = False
+        # v0.9.0: Track if file contains Agent context patterns (OpenAI API, etc.)
+        self._has_agent_context: bool = self._detect_agent_context(source)
+
+    def _detect_agent_context(self, source: str) -> bool:
+        """
+        v0.9.0: Detect if file contains Agent context patterns.
+
+        This identifies code that interfaces with LLM APIs directly,
+        even without @tool decorators. Used for projects like Generative Agents
+        that use raw OpenAI API calls.
+
+        Returns:
+            True if Agent context patterns are detected
+        """
+        source_lower = source.lower()
+
+        # Check for Agent context patterns
+        for pattern in self.AGENT_CONTEXT_PATTERNS:
+            if pattern.lower() in source_lower:
+                return True
+
+        # Check for prompt construction patterns (f-string with "prompt")
+        if 'prompt' in source_lower and ("f'" in source or 'f"' in source):
+            return True
+
+        # Check for messages array construction (OpenAI format)
+        if 'messages' in source_lower and '[' in source and 'role' in source_lower:
+            return True
+
+        return False
 
     def _get_context_confidence(self) -> tuple:
         """
@@ -527,6 +609,11 @@ class PythonASTVisitor(ast.NodeVisitor):
         # Check if in agent framework class
         if self._in_agent_framework_class:
             return ("agent_framework", self.CONTEXT_CONFIDENCE["agent_framework"])
+
+        # v0.9.0: Check if file has Agent context (OpenAI API, etc.)
+        # This catches projects like Generative Agents that don't use @tool
+        if self._has_agent_context:
+            return ("agent_context", 0.75)  # High confidence for Agent code
 
         # Check current class name
         if self._current_class:
@@ -884,6 +971,11 @@ class PythonASTVisitor(ast.NodeVisitor):
             trust_finding = self._check_trust_boundary_violation(node)
             if trust_finding:
                 self.dangerous_patterns.append(trust_finding)
+
+            # v0.9.0: AGENT-049 - Unsafe deserialization
+            deserialize_finding = self._check_unsafe_deserialization(node)
+            if deserialize_finding:
+                self.dangerous_patterns.append(deserialize_finding)
 
             # v0.3.2: AGENT-041 - SQL injection via f-string
             sql_finding = self._check_sql_fstring_injection(node)
@@ -2790,6 +2882,87 @@ class PythonASTVisitor(ast.NodeVisitor):
             'snippet': self._get_line(node.lineno),
             'owasp_id': 'ASI-09',
             'note': 'Multi-agent setup without explicit authentication between agents',
+        }
+
+    def _check_unsafe_deserialization(
+        self, node: ast.Call
+    ) -> Optional[Dict[str, Any]]:
+        """
+        AGENT-049 (v0.9.0): Detect unsafe deserialization functions.
+
+        Detects patterns like:
+            pickle.load(f)
+            torch.load('model.pt')
+            joblib.load('state.pkl')
+
+        These can execute arbitrary code when loading untrusted data.
+        In agentic contexts, this is especially dangerous as agents may
+        load model checkpoints, state files, or data from untrusted sources.
+
+        Returns a finding dict if vulnerable, None otherwise.
+        """
+        func_name = self._get_call_name(node)
+        if not func_name:
+            return None
+
+        # Check if this is an unsafe deserialization call
+        library = None
+        matched_func = None
+
+        for unsafe_func, lib in self.UNSAFE_DESERIALIZE_FUNCTIONS.items():
+            # Match both full and simple names
+            if func_name == unsafe_func or func_name.endswith('.' + unsafe_func.split('.')[-1]):
+                # Additional check for generic names like "load"
+                if unsafe_func.split('.')[-1] in ('load', 'loads'):
+                    # Must have the module prefix to match
+                    if unsafe_func.split('.')[0] in func_name.lower():
+                        library = lib
+                        matched_func = unsafe_func
+                        break
+                else:
+                    library = lib
+                    matched_func = unsafe_func
+                    break
+
+        if not matched_func:
+            return None
+
+        # Check for safe usage patterns
+        confidence = 0.85  # Base confidence for unsafe deserialization
+
+        # Check for weights_only=True in torch.load
+        if library == 'torch':
+            for kw in node.keywords:
+                if kw.arg == 'weights_only':
+                    if isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                        # Safe usage
+                        return None
+            # torch.load without weights_only=True is unsafe
+            confidence = 0.90
+
+        # Check surrounding lines for safe alternative patterns
+        line = node.lineno
+        context_start = max(0, line - 5)
+        context_end = min(len(self.source_lines), line + 5)
+        context = '\n'.join(self.source_lines[context_start:context_end])
+
+        for safe_pattern in self.SAFE_DESERIALIZE_EVIDENCE:
+            if safe_pattern in context:
+                confidence *= 0.5  # Reduce confidence if safe alternatives nearby
+
+        # Skip if confidence drops too low
+        if confidence < 0.30:
+            return None
+
+        return {
+            'type': 'unsafe_deserialization',
+            'function': matched_func,
+            'library': library,
+            'line': node.lineno,
+            'snippet': self._get_line(node.lineno),
+            'owasp_id': 'ASI-04',
+            'confidence': confidence,
+            'note': f'Unsafe {library} deserialization can execute arbitrary code',
         }
 
     def _check_sql_fstring_injection(

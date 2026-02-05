@@ -125,6 +125,40 @@ TEST_PATH_PATTERNS: List[re.Pattern] = [
 
 # Known high-confidence credential prefixes (KNOWN-004 fix)
 # IMPORTANT: Sorted by prefix length (longest first) to ensure more specific matches take priority
+# === v0.9.0: Mask/Redaction patterns (should be excluded from credential detection) ===
+# These patterns indicate data has been intentionally masked or redacted
+# Common in training data, documentation, and logs
+MASK_PATTERNS: List[Tuple[re.Pattern, str]] = [
+    (re.compile(r'\*{8,}'), "asterisk mask (8+ chars)"),        # ********
+    (re.compile(r'x{8,}', re.IGNORECASE), "x placeholder"),     # xxxxxxxx or XXXXXXXX
+    (re.compile(r'\.{8,}'), "dot ellipsis"),                    # ........
+    (re.compile(r'\[REDACTED\]', re.IGNORECASE), "REDACTED tag"),
+    (re.compile(r'\[MASKED\]', re.IGNORECASE), "MASKED tag"),
+    (re.compile(r'\[HIDDEN\]', re.IGNORECASE), "HIDDEN tag"),
+    (re.compile(r'\[REMOVED\]', re.IGNORECASE), "REMOVED tag"),
+    (re.compile(r'\[CENSORED\]', re.IGNORECASE), "CENSORED tag"),
+    (re.compile(r'<REDACTED>', re.IGNORECASE), "XML REDACTED tag"),
+    (re.compile(r'<MASKED>', re.IGNORECASE), "XML MASKED tag"),
+    (re.compile(r'\*+[A-Za-z0-9]+\*+'), "partial mask pattern"),  # ***abc***
+]
+
+
+def is_masked_value(value: str) -> Tuple[bool, str]:
+    """
+    Check if a value contains masking/redaction patterns.
+
+    Args:
+        value: The value to check
+
+    Returns:
+        Tuple of (is_masked, reason)
+    """
+    for pattern, reason in MASK_PATTERNS:
+        if pattern.search(value):
+            return (True, reason)
+    return (False, "")
+
+
 HIGH_CONFIDENCE_PREFIXES: List[Tuple[str, str, float]] = [
     # Private keys (critical, should always be flagged)
     ("-----BEGIN RSA PRIVATE KEY", "RSA Private Key", 0.98),
@@ -451,6 +485,18 @@ class SemanticAnalyzer:
         value_type = candidate.value_type
         context = candidate.context
         identifier = candidate.identifier
+
+        # === v0.9.0: Mask/Redaction Detection (P0 - Gorilla 520 FP fix) ===
+        # Check for masked/redacted values FIRST before any other analysis
+        # These are intentionally obscured values, not real credentials
+        if value:
+            is_masked, mask_reason = is_masked_value(value)
+            if is_masked:
+                return (
+                    False,
+                    0.02,
+                    f"Masked/redacted value detected: {mask_reason}"
+                )
 
         # === NEW: UUID Format Detection ===
         # Check if value is UUID format BEFORE other analysis

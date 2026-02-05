@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from agent_audit.models.risk import Severity, Category, Location
 
@@ -36,6 +36,81 @@ BLOCK_EXEMPT_RULES = {
     "AGENT-044",  # Sudoers NOPASSWD
     "AGENT-046",  # System credential store access
 }
+
+
+# v0.9.0: Rule subsumption map
+# When a more severe rule fires on the same line, it subsumes less severe rules
+# This reduces noise from redundant findings
+RULE_SUBSUMPTION_MAP: Dict[str, List[str]] = {
+    # Command injection (AGENT-001) subsumes:
+    # - No sandbox subprocess (AGENT-047): If we have injection, sandbox is moot
+    # - No input validation (AGENT-034): Confirmed injection > missing validation
+    "AGENT-001": ["AGENT-047", "AGENT-034"],
+    # Code execution (AGENT-017) also subsumes these
+    "AGENT-017": ["AGENT-047", "AGENT-034"],
+}
+
+
+def deduplicate_findings(findings: List["Finding"]) -> List["Finding"]:
+    """
+    Deduplicate findings on the same line.
+
+    v0.9.0: P0 fix for same-line multi-rule redundancy (MLAgentBench, SWE-agent).
+
+    Rules:
+    1. Same rule + same file:line → keep only the highest confidence finding
+    2. Rule subsumption: AGENT-001 firing subsumes AGENT-047/AGENT-034 on same line
+
+    Args:
+        findings: List of findings to deduplicate
+
+    Returns:
+        Deduplicated list of findings
+    """
+    # Group by file:line
+    from collections import defaultdict
+    by_location: Dict[str, List["Finding"]] = defaultdict(list)
+
+    for f in findings:
+        key = f"{f.location.file_path}:{f.location.start_line}"
+        by_location[key].append(f)
+
+    result: List["Finding"] = []
+
+    for loc_key, loc_findings in by_location.items():
+        if len(loc_findings) == 1:
+            result.append(loc_findings[0])
+            continue
+
+        # Rule 1: Same rule deduplication - keep highest confidence
+        rule_to_findings: Dict[str, List["Finding"]] = defaultdict(list)
+        for f in loc_findings:
+            rule_to_findings[f.rule_id].append(f)
+
+        # Keep best finding per rule
+        best_per_rule: Dict[str, "Finding"] = {}
+        for rule_id, rule_findings in rule_to_findings.items():
+            # Sort by confidence descending, keep first
+            best = max(rule_findings, key=lambda x: x.confidence)
+            best_per_rule[rule_id] = best
+
+        # Rule 2: Apply subsumption
+        rules_present = set(best_per_rule.keys())
+        subsumed_rules: set = set()
+
+        for dominant_rule, subsumed_list in RULE_SUBSUMPTION_MAP.items():
+            if dominant_rule in rules_present:
+                # This dominant rule subsumes others
+                for subsumed in subsumed_list:
+                    if subsumed in rules_present:
+                        subsumed_rules.add(subsumed)
+
+        # Add non-subsumed findings to result
+        for rule_id, finding in best_per_rule.items():
+            if rule_id not in subsumed_rules:
+                result.append(finding)
+
+    return result
 
 
 def confidence_to_tier(confidence: float) -> str:
