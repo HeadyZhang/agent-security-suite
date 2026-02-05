@@ -21,7 +21,6 @@ from typing import List, Optional, Dict, Any, Tuple
 from agent_audit.analysis.entropy import shannon_entropy, entropy_confidence
 from agent_audit.analysis.placeholder_detector import is_placeholder, is_vendor_example
 from agent_audit.analysis.value_analyzer import KNOWN_CREDENTIAL_FORMATS, detect_uuid_format
-from agent_audit.analysis.env_tracer import get_env_tracer
 from agent_audit.analysis.identifier_analyzer import (
     analyze_identifier,
     IdentifierCategory,
@@ -34,10 +33,7 @@ from agent_audit.analysis.context_classifier import (
     classify_file_context,
     FileContext,
 )
-from agent_audit.analysis.rule_context_config import (
-    get_context_multiplier,
-    is_localhost_url,
-)
+from agent_audit.analysis.rule_context_config import get_context_multiplier
 from agent_audit.parsers.treesitter_parser import TreeSitterParser, ValueType
 
 logger = logging.getLogger(__name__)
@@ -529,7 +525,6 @@ class SemanticAnalyzer:
         if raw_text and ('{' in raw_text or '${' in raw_text):
             # Check if this looks like Python f-string or JS template literal
             if "f'" in raw_text or 'f"' in raw_text or '`' in raw_text:
-                tracer = get_env_tracer()
                 # We need file content to trace env vars - check if available
                 # For now, use a heuristic: common env variable naming patterns
                 env_var_pattern = r'\{([A-Z][A-Z0-9_]*)\}'

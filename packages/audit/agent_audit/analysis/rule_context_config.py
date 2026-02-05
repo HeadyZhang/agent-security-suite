@@ -15,7 +15,8 @@ AFTER the base confidence is calculated by the rule-specific scanner.
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+import re
+from typing import Dict
 
 from agent_audit.analysis.context_classifier import FileContext
 
@@ -198,7 +199,6 @@ LOCALHOST_URL_PATTERNS = [
 ]
 
 # Pre-compiled patterns
-import re
 _LOCALHOST_PATTERNS = [re.compile(p, re.IGNORECASE) for p in LOCALHOST_URL_PATTERNS]
 
 

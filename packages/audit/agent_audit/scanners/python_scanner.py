@@ -12,11 +12,7 @@ from agent_audit.scanners.base import BaseScanner, ScanResult
 from agent_audit.models.tool import ToolDefinition, PermissionType, ToolParameter
 from agent_audit.analyzers.memory_context import MemoryContextAnalyzer, MemoryOpContext
 from agent_audit.analysis.dangerous_operation_analyzer import should_flag_tool_input
-from agent_audit.analysis.context_classifier import classify_file_context, FileContext
-from agent_audit.analysis.rule_context_config import (
-    get_context_multiplier,
-    is_localhost_url,
-)
+from agent_audit.analysis.rule_context_config import is_localhost_url
 
 logger = logging.getLogger(__name__)
 
