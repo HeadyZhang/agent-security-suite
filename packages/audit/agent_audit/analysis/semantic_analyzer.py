@@ -25,6 +25,10 @@ from agent_audit.analysis.identifier_analyzer import (
     analyze_identifier,
     IdentifierCategory,
 )
+from agent_audit.analysis.framework_detector import (
+    is_credential_schema_definition,
+    is_framework_internal_path,
+)
 from agent_audit.parsers.treesitter_parser import TreeSitterParser, ValueType
 
 logger = logging.getLogger(__name__)
@@ -499,6 +503,15 @@ class SemanticAnalyzer:
                         f"Data identifier variable '{identifier}' ({id_analysis.reason})"
                     )
 
+        # === NEW: Framework Schema Detection (AGENT-004 FP Reduction) ===
+        # Check if this is a Pydantic/dataclass schema definition
+        if is_credential_schema_definition(candidate.raw_text):
+            return (
+                False,
+                0.05,
+                "Schema field definition (Pydantic/dataclass) - not a hardcoded credential"
+            )
+
         # === Immediate Exclusions (confidence = 0.0) ===
 
         # Exclude function calls
@@ -606,6 +619,15 @@ class SemanticAnalyzer:
             is_critical_pattern = True
         elif "://" in value and "@" in value:  # Connection string with credentials
             is_critical_pattern = True
+
+        # === NEW: Framework Internal Path Detection (AGENT-004 FP Reduction) ===
+        # Check if file is in a known framework's internal code
+        is_internal, framework = is_framework_internal_path(file_path)
+        if is_internal and not is_critical_pattern:
+            # Significantly reduce confidence for findings in framework internals
+            # These are typically schema definitions, type hints, or config patterns
+            adjusted *= 0.15  # Strong reduction for framework internal paths
+            logger.debug(f"Framework internal path ({framework}): {file_path}")
 
         # File extension multiplier
         suffix = Path(file_path).suffix.lower()

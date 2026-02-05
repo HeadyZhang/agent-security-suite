@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from agent_audit.scanners.base import BaseScanner, ScanResult
 from agent_audit.models.tool import ToolDefinition, PermissionType, ToolParameter
 from agent_audit.analyzers.memory_context import MemoryContextAnalyzer, MemoryOpContext
+from agent_audit.analysis.dangerous_operation_analyzer import should_flag_tool_input
 
 logger = logging.getLogger(__name__)
 
@@ -498,10 +499,26 @@ class PythonASTVisitor(ast.NodeVisitor):
     def _get_context_confidence(self) -> tuple:
         """
         v0.5.0: Determine the current execution context and its confidence level.
+        v0.6.0: Added test file detection for FP reduction.
 
         Returns:
             Tuple of (context_type: str, confidence: float)
         """
+        # v0.6.0: Check if in test file - significantly reduce confidence
+        # Test files contain mocks, test fixtures, and intentionally unsafe code
+        file_str = str(self.file_path).lower().replace("\\", "/")
+        filename = file_str.split("/")[-1] if "/" in file_str else file_str
+        is_test_file = (
+            "/tests/" in file_str or
+            "/test/" in file_str or
+            filename.startswith("test_") or  # test_foo.py
+            filename.endswith("_test.py") or  # foo_test.py
+            "/fixtures/" in file_str or
+            "/spec/" in file_str
+        )
+        if is_test_file:
+            return ("test_file", 0.30)  # Very low confidence for test code
+
         # Highest priority: @tool decorator
         if self._in_tool_function:
             return ("tool_decorator", self.CONTEXT_CONFIDENCE["tool_decorator"])
@@ -2361,6 +2378,7 @@ class PythonASTVisitor(ast.NodeVisitor):
         str/Any parameters without validation in the function body.
 
         v0.4.1: Recognizes safe AST evaluation and parameterized SQL as mitigation.
+        v0.6.0: Uses dangerous operation analyzer to avoid flagging safe tools.
 
         Returns a finding dict if vulnerable, None otherwise.
         """
@@ -2443,6 +2461,32 @@ class PythonASTVisitor(ast.NodeVisitor):
             elif self._has_parameterized_sql(node):
                 confidence = 0.10  # Very low - parameterized queries are safe
                 mitigation_detected = 'parameterized_sql_query'
+
+            # v0.6.0: Use dangerous operation analyzer for FP reduction
+            # Only flag tools that actually have dangerous operations
+            else:
+                # Get function body text
+                try:
+                    func_body = ast.get_source_segment(self.source, node) or ''
+                except Exception:
+                    func_body = ''
+
+                # Check if tool should be flagged based on dangerous operations
+                should_flag, analyzer_confidence, reason = should_flag_tool_input(
+                    func_name=node.name,
+                    func_body=func_body,
+                    param_names=list(str_params),
+                    has_validation=False,
+                )
+
+                if not should_flag:
+                    # Safe tool pattern - don't flag
+                    return None
+
+                # Use analyzer confidence if lower than default
+                if analyzer_confidence < confidence:
+                    confidence = analyzer_confidence
+                    mitigation_detected = reason
 
             return {
                 'type': 'tool_no_input_validation',

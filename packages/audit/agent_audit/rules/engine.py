@@ -241,7 +241,53 @@ class RuleEngine:
                 if finding:
                     findings.append(finding)
 
+        # v0.6.0: Deduplicate overlapping ASI-01 findings on same line
+        # AGENT-010 (general f-string prompt) and AGENT-027 (LangChain message) overlap
+        findings = self._deduplicate_findings(findings)
+
         return findings
+
+    def _deduplicate_findings(self, findings: List[Finding]) -> List[Finding]:
+        """
+        Remove duplicate findings on the same line when rules overlap.
+
+        Prioritization rules:
+        - Keep AGENT-010 over AGENT-027 (both detect f-string system prompts)
+        - Keep more specific rules over general rules
+
+        Args:
+            findings: List of findings to deduplicate
+
+        Returns:
+            Deduplicated findings list
+        """
+        # Track findings by file:line
+        findings_by_location: Dict[str, List[Finding]] = {}
+        for f in findings:
+            loc = f.location
+            key = f"{loc.file_path}:{loc.start_line}"
+            if key not in findings_by_location:
+                findings_by_location[key] = []
+            findings_by_location[key].append(f)
+
+        result: List[Finding] = []
+        for loc_key, loc_findings in findings_by_location.items():
+            if len(loc_findings) == 1:
+                result.append(loc_findings[0])
+                continue
+
+            # Multiple findings on same line - apply deduplication rules
+            rule_ids = {f.rule_id for f in loc_findings}
+
+            # Overlapping rules that should be deduplicated
+            # AGENT-010 (general) vs AGENT-027 (LangChain-specific) - keep AGENT-010
+            if 'AGENT-010' in rule_ids and 'AGENT-027' in rule_ids:
+                # Keep AGENT-010, remove AGENT-027
+                loc_findings = [f for f in loc_findings if f.rule_id != 'AGENT-027']
+
+            result.extend(loc_findings)
+
+        return result
 
     def evaluate_credentials(
         self,
