@@ -9,6 +9,12 @@ from dataclasses import dataclass, field
 from agent_audit.models.finding import Finding, Remediation, confidence_to_tier
 from agent_audit.models.risk import Severity, Category, Location
 from agent_audit.rules.loader import RuleLoader
+from agent_audit.analysis.context_classifier import (
+    classify_file_context,
+    FileContext,
+    detect_infrastructure_context,
+)
+from agent_audit.analysis.rule_context_config import get_context_multiplier
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +207,8 @@ class RuleEngine:
     def evaluate_dangerous_patterns(
         self,
         patterns: List[Dict[str, Any]],
-        file_path: str
+        file_path: str,
+        source_code: Optional[str] = None
     ) -> List[Finding]:
         """
         Evaluate dangerous patterns detected by scanners.
@@ -209,6 +216,7 @@ class RuleEngine:
         Args:
             patterns: List of dangerous patterns from scanner
             file_path: Source file path
+            source_code: Optional source code for infrastructure detection
 
         Returns:
             List of findings
@@ -225,7 +233,8 @@ class RuleEngine:
                     finding = self._create_finding_from_pattern(
                         rule_id="AGENT-001",
                         pattern=pattern,
-                        file_path=file_path
+                        file_path=file_path,
+                        source_code=source_code
                     )
                     if finding:
                         findings.append(finding)
@@ -236,7 +245,8 @@ class RuleEngine:
                 finding = self._create_finding_from_pattern(
                     rule_id=rule_id,
                     pattern=pattern,
-                    file_path=file_path
+                    file_path=file_path,
+                    source_code=source_code
                 )
                 if finding:
                     findings.append(finding)
@@ -498,7 +508,8 @@ class RuleEngine:
                 )
                 for match in matches:
                     finding = self._create_finding_from_rule(
-                        rule, context.file_path, match
+                        rule, context.file_path, match,
+                        source_code=context.source_code
                     )
                     findings.append(finding)
 
@@ -510,7 +521,8 @@ class RuleEngine:
                 )
                 for match in matches:
                     finding = self._create_finding_from_rule(
-                        rule, context.file_path, match
+                        rule, context.file_path, match,
+                        source_code=context.source_code
                     )
                     findings.append(finding)
 
@@ -523,7 +535,8 @@ class RuleEngine:
                     )
                     for match in matches:
                         finding = self._create_finding_from_rule(
-                            rule, context.file_path, match
+                            rule, context.file_path, match,
+                            source_code=context.source_code
                         )
                         findings.append(finding)
 
@@ -614,22 +627,46 @@ class RuleEngine:
         self,
         rule_id: str,
         pattern: Dict[str, Any],
-        file_path: str
+        file_path: str,
+        source_code: Optional[str] = None
     ) -> Optional[Finding]:
-        """Create a finding from a matched pattern."""
+        """Create a finding from a matched pattern.
+
+        v0.8.0: Now passes source_code for infrastructure detection.
+        """
         rule = self._rules.get(rule_id)
         if not rule:
             return None
 
-        return self._create_finding_from_rule(rule, file_path, pattern)
+        return self._create_finding_from_rule(rule, file_path, pattern, source_code=source_code)
+
+    # Privilege rules that should NOT be dampened by infrastructure context
+    # These rules are critical even in sandbox/infrastructure code
+    PRIVILEGE_EXEMPT_RULES = {
+        "AGENT-043",  # Daemon privileges
+        "AGENT-044",  # Sudoers NOPASSWD
+        "AGENT-046",  # System credential store access
+    }
+
+    # Rules that benefit from infrastructure context detection
+    INFRASTRUCTURE_DAMPENED_RULES = {
+        "AGENT-001",  # Command injection
+        "AGENT-047",  # Subprocess without sandbox
+    }
 
     def _create_finding_from_rule(
         self,
         rule: Dict[str, Any],
         file_path: str,
-        match: Dict[str, Any]
+        match: Dict[str, Any],
+        source_code: Optional[str] = None
     ) -> Finding:
-        """Create a Finding from a rule and match."""
+        """
+        Create a Finding from a rule and match.
+
+        v0.8.0: Applies per-rule context multipliers for FP reduction.
+                Also applies infrastructure detection for AGENT-001/047.
+        """
         remediation_data = rule.get('remediation', {})
         remediation = None
         if remediation_data:
@@ -643,7 +680,57 @@ class RuleEngine:
         # Support both owasp_id and owasp_agentic_id
         owasp_id = rule.get('owasp_agentic_id') or rule.get('owasp_id')
 
-        confidence = match.get('confidence', 1.0)
+        # v0.8.0: Apply per-rule context multipliers
+        rule_id = rule['id']
+        file_context = classify_file_context(file_path)
+        context_multiplier = get_context_multiplier(rule_id, file_context)
+
+        base_confidence = match.get('confidence', 1.0)
+        confidence = base_confidence * context_multiplier
+
+        # Log context adjustment if significant
+        if context_multiplier < 1.0:
+            logger.debug(
+                f"Context adjustment: {rule_id} in {file_context.value} "
+                f"({base_confidence:.2f} × {context_multiplier:.2f} = {confidence:.2f})"
+            )
+
+        # v0.8.0: Infrastructure detection for AGENT-001/047
+        # These rules should be dampened in sandbox/container building code
+        infrastructure_context = False
+        infrastructure_note = None
+
+        if (rule_id in self.INFRASTRUCTURE_DAMPENED_RULES and
+                rule_id not in self.PRIVILEGE_EXEMPT_RULES):
+            # Content-based detection if source available
+            if source_code:
+                is_infra, infra_conf, infra_reason = detect_infrastructure_context(
+                    file_path, source_code
+                )
+                if is_infra:
+                    # Damping proportional to infrastructure confidence
+                    # infra_conf=0.50 → ×0.65, infra_conf=0.90 → ×0.37
+                    damping = 1.0 - (infra_conf * 0.70)
+                    confidence *= damping
+                    infrastructure_context = True
+                    infrastructure_note = (
+                        f"Infrastructure/sandbox code detected ({infra_reason}). "
+                        "The flagged operation may be architecturally intentional."
+                    )
+                    logger.debug(
+                        f"Infrastructure damping: {rule_id} × {damping:.2f} "
+                        f"(infra_conf={infra_conf:.2f})"
+                    )
+            # Path-based detection as fallback
+            elif file_context == FileContext.INFRASTRUCTURE:
+                # File path already classified as infrastructure - apply damping
+                confidence *= 0.50
+                infrastructure_context = True
+                infrastructure_note = (
+                    "File is in infrastructure context. "
+                    "The flagged operation may be architecturally intentional."
+                )
+
         tier = confidence_to_tier(confidence)
 
         finding = Finding(
@@ -668,6 +755,12 @@ class RuleEngine:
         # Add mitigation metadata if present
         if match.get('mitigation_detected'):
             finding.metadata['mitigation_detected'] = match['mitigation_detected']
+
+        # v0.8.0: Add infrastructure context annotation
+        if infrastructure_context:
+            finding.metadata['infrastructure_context'] = True
+            if infrastructure_note:
+                finding.metadata['note'] = infrastructure_note
 
         return finding
 

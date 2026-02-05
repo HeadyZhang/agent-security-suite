@@ -106,8 +106,9 @@ def calculate_risk_score(findings: List[Finding]) -> float:
     Calculate confidence-weighted risk score from findings.
 
     v0.5.2: Uses smoother logarithmic scaling (natural log) to prevent saturation.
-    The old formula (2.5 * log2) saturated at ~20 findings. New formula scales
-    smoothly up to ~200 findings before approaching 9.8.
+    v0.8.0: Infrastructure context findings have reduced weight (0.5x).
+
+    The formula scales smoothly up to ~200 findings before approaching 9.8.
 
     Calibration targets:
     - 0 findings → 0.0
@@ -115,6 +116,11 @@ def calculate_risk_score(findings: List[Finding]) -> float:
     - 10 WARN findings → ~5.0 (MEDIUM)
     - 20 WARN findings → ~5.8 (MEDIUM)
     - 50 WARN + 5 BLOCK → ~9.3 (HIGH)
+
+    v0.8.0 changes:
+    - Only BLOCK + WARN tier findings contribute (INFO/SUPPRESSED ignored)
+    - Infrastructure context findings contribute half weight
+    - This reduces Risk Score inflation from sandbox/infrastructure code findings
 
     Args:
         findings: List of findings to score
@@ -138,8 +144,15 @@ def calculate_risk_score(findings: List[Finding]) -> float:
         if tier not in ('BLOCK', 'WARN') or f.suppressed:
             continue
 
-        weight = SEVERITY_WEIGHT.get(f.severity.value, 0.5)
-        raw += f.confidence * weight
+        severity_weight = SEVERITY_WEIGHT.get(f.severity.value, 0.5)
+
+        # v0.8.0: Infrastructure context findings contribute half weight
+        # This reduces Risk Score inflation from sandbox/infrastructure code
+        context_weight = 1.0
+        if hasattr(f, 'metadata') and f.metadata.get('infrastructure_context'):
+            context_weight = 0.5
+
+        raw += f.confidence * severity_weight * context_weight
 
         if tier == 'BLOCK':
             block_count += 1

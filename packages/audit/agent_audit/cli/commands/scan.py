@@ -99,20 +99,24 @@ def run_scan(
     for py_result in python_results:
         scanned_files += 1
 
+        # v0.8.0: Read source early for infrastructure detection
+        source = None
+        try:
+            source = Path(py_result.source_file).read_text(encoding='utf-8')
+        except Exception:
+            pass
+
         # Generate findings from dangerous patterns
+        # v0.8.0: Pass source_code for infrastructure context detection
         findings = rule_engine.evaluate_dangerous_patterns(
             py_result.dangerous_patterns,
-            py_result.source_file
+            py_result.source_file,
+            source_code=source
         )
         all_findings.extend(findings)
 
-        # Check for credentials in source
-        try:
-            source = Path(py_result.source_file).read_text(encoding='utf-8')
-            cred_findings = rule_engine.evaluate_credentials(source, py_result.source_file)
-            all_findings.extend(cred_findings)
-        except Exception:
-            pass
+        # Note: Credential detection is handled by secret_scanner (with semantic analysis)
+        # to avoid duplicate findings. Don't call rule_engine.evaluate_credentials() here.
 
         # Evaluate tool permissions
         if py_result.tools:
@@ -239,6 +243,12 @@ def run_scan(
     # Apply ignore rules
     for finding in all_findings:
         ignore_manager.apply_to_finding(finding)
+
+    # Note: Context-based confidence adjustment is handled by:
+    # - AGENT-004: semantic_analyzer (called by secret_scanner)
+    # - Other rules: Individual scanners apply their own confidence scores
+    # We don't apply blanket post-processing here to avoid over-suppressing
+    # intentionally vulnerable test fixtures used for scanner validation.
 
     # Filter by baseline if provided
     if baseline_path and baseline_path.exists():

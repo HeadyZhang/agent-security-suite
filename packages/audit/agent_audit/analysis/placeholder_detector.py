@@ -195,3 +195,118 @@ def placeholder_confidence(value: str) -> float:
     """
     result = is_placeholder(value)
     return result.confidence if result.is_placeholder else 0.0
+
+
+# ============================================================================
+# v0.8.0: Vendor Example Keys Detection
+# ============================================================================
+
+# Known vendor example/test keys that appear in documentation
+# These are NOT real credentials and should not trigger findings
+VENDOR_EXAMPLE_KEYS = {
+    # AWS official documentation examples
+    "AKIAIOSFODNN7EXAMPLE",
+    "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "AKIAI44QH8DHBEXAMPLE",
+    "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY",
+
+    # Stripe test key patterns (use regex patterns instead of actual keys)
+    # Pattern: sk_test_* or pk_test_* followed by alphanumeric
+    # Actual detection handled by STRIPE_TEST_KEY_PATTERN below
+
+    # GitHub documentation examples
+    "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "github_pat_EXAMPLE",
+
+    # Generic placeholder markers
+    "test-api-key",
+    "fake-api-key",
+    "mock-api-key",
+    "dummy-secret",
+    "placeholder-token",
+    "no-key",
+    "api-key-here",
+    "your-api-key",
+}
+
+# Patterns that indicate example/test values (not just specific strings)
+# NOTE: These patterns are for API keys/tokens, NOT for connection strings
+# Connection strings may contain example.com but still have real credentials
+VENDOR_EXAMPLE_VALUE_PATTERNS = [
+    # Stripe test keys (sk_test_ or pk_test_ prefix)
+    (r"^(sk|pk)_test_", 0.95, "Stripe test key prefix"),
+    # Value starts with or is named "example" (not just contains it)
+    # Avoids matching example.com in URLs/connection strings
+    (r"(?i)^example[-_]", 0.90, "starts with 'example_'"),
+    (r"(?i)[-_]example$", 0.85, "ends with '_example'"),
+    (r"(?i)^example$", 0.90, "is 'example'"),
+    # EXAMPLEKEY suffix (common in AWS docs)
+    (r"EXAMPLEKEY$", 0.95, "ends with 'EXAMPLEKEY'"),
+    # Starts with test_/test-
+    (r"(?i)^test[-_]", 0.85, "starts with 'test_'"),
+    # Starts with fake_/fake-
+    (r"(?i)^fake[-_]", 0.90, "starts with 'fake_'"),
+    # Starts with dummy
+    (r"(?i)^dummy", 0.90, "starts with 'dummy'"),
+    # Starts with sample
+    (r"(?i)^sample", 0.85, "starts with 'sample'"),
+    # Starts with mock
+    (r"(?i)^mock", 0.85, "starts with 'mock'"),
+    # Contains consecutive x's (8+)
+    (r"x{8,}", 0.95, "consecutive x characters"),
+    # Contains consecutive 0's (8+)
+    (r"0{8,}", 0.90, "consecutive 0 characters"),
+    # Contains consecutive 1's (8+)
+    (r"1{8,}", 0.85, "consecutive 1 characters"),
+    # Sequential digits
+    (r"^1234567", 0.85, "sequential digits"),
+    # All same character
+    (r"^(.)\1{7,}$", 0.95, "repeated single character"),
+]
+
+
+def is_vendor_example(value: str) -> Tuple[bool, float, Optional[str]]:
+    """
+    Check if a value is a known vendor example key.
+
+    These are keys that appear in official documentation and are
+    explicitly marked as examples (not real credentials).
+
+    Args:
+        value: The potential credential value
+
+    Returns:
+        Tuple of (is_example, confidence, reason)
+        - is_example: True if this looks like a vendor example key
+        - confidence: How confident we are (0.0-1.0)
+        - reason: Description of why this was identified as an example
+
+    v0.8.0: Added for AGENT-004 false positive reduction.
+    """
+    if not value:
+        return (False, 0.0, None)
+
+    # Clean up the value
+    stripped = value.strip().strip("'\"")
+
+    # Skip vendor example detection for connection strings
+    # These may contain example.com but still have real credentials
+    if '://' in stripped and '@' in stripped:
+        return (False, 0.0, None)
+
+    # Exact match against known example keys
+    if stripped in VENDOR_EXAMPLE_KEYS:
+        return (True, 0.98, "Known vendor example key")
+
+    # Case-insensitive check for known keys
+    stripped_lower = stripped.lower()
+    for known_key in VENDOR_EXAMPLE_KEYS:
+        if known_key.lower() == stripped_lower:
+            return (True, 0.98, "Known vendor example key (case-insensitive)")
+
+    # Pattern matching for example-like values
+    for pattern, confidence, reason in VENDOR_EXAMPLE_VALUE_PATTERNS:
+        if re.search(pattern, stripped):
+            return (True, confidence, f"Pattern match: {reason}")
+
+    return (False, 0.0, None)

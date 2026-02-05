@@ -297,7 +297,11 @@ class TestContextAdjustment:
     """Tests for Stage 3 context-based confidence adjustment."""
 
     def test_test_file_reduces_confidence(self, analyzer):
-        """Credentials in test files should have reduced confidence."""
+        """v0.8.0 P7: Credentials in test files should be SUPPRESSED.
+
+        Test files with credential patterns are almost always false positives
+        (test data, mocks, examples). They should be suppressed to reduce noise.
+        """
         openai_key = "sk-proj-abcdefghijklmnopqrstuvwxyz123456789012345678901234"
         result = analyze_credential_candidate(
             identifier="api_key",
@@ -309,10 +313,10 @@ class TestContextAdjustment:
             file_path="/app/tests/test_client.py",
             pattern_name="OpenAI Project API Key",
         )
-        # Should still report but with slightly lower confidence
-        assert result.should_report
-        # Base confidence should be reduced by test path multiplier
-        assert result.confidence < 0.95
+        # v0.8.0 P7: Test files should be SUPPRESSED (confidence < 0.30)
+        # This reduces BLOCK FP rate from test file credentials
+        assert result.tier == "SUPPRESSED"
+        assert result.confidence < 0.30
 
     def test_markdown_file_reduces_confidence(self, analyzer):
         """Credentials in markdown files should have reduced confidence."""

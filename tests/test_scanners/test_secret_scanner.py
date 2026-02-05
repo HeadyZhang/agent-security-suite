@@ -177,7 +177,9 @@ enabled = True
         v0.5.0: Changed from complete exclusion to reduced confidence.
         v0.5.1: Further reduced test file multiplier to 0.55 to reduce FPs
         in real-world scans (e.g., openclaw had 21 test file findings).
-        Known formats in test files now typically reach INFO tier.
+        v0.8.0 P7: Test files with credentials now get SUPPRESSED tier
+        (multiplier lowered to 0.25) to further reduce false positives.
+        AWS example keys in test files are almost always test data.
         """
         test_dir = tmp_path / "tests"
         test_dir.mkdir(parents=True)
@@ -185,14 +187,13 @@ enabled = True
 
         results = scanner.scan(test_dir)
 
-        # v0.5.1: Known credential formats are still reported in test files
-        # but with significantly reduced confidence (INFO tier vs BLOCK/WARN)
+        # v0.8.0 P7: Test files with credentials now typically get SUPPRESSED
+        # because 0.95 * 0.25 ≈ 0.24 < 0.30 (SUPPRESSED threshold).
+        # This is intentional - test files with AWS example keys are almost
+        # always false positives (test data, mock values, etc.)
         total_secrets = sum(len(r.secrets) for r in results)
-        assert total_secrets == 1
-        secret = results[0].secrets[0]
-        # Confidence should be reduced (0.95 * 0.55 ≈ 0.52)
-        assert secret.confidence < 0.6
-        assert secret.tier in ("INFO", "WARN")  # INFO is expected, WARN acceptable
+        # Semantic analyzer filters out findings with confidence < 0.30 (SUPPRESSED)
+        assert total_secrets == 0
 
     def test_excludes_placeholder_values(self, scanner, production_dir):
         """Test exclusion of common false positive patterns."""

@@ -12,6 +12,11 @@ from agent_audit.scanners.base import BaseScanner, ScanResult
 from agent_audit.models.tool import ToolDefinition, PermissionType, ToolParameter
 from agent_audit.analyzers.memory_context import MemoryContextAnalyzer, MemoryOpContext
 from agent_audit.analysis.dangerous_operation_analyzer import should_flag_tool_input
+from agent_audit.analysis.context_classifier import classify_file_context, FileContext
+from agent_audit.analysis.rule_context_config import (
+    get_context_multiplier,
+    is_localhost_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1551,12 +1556,29 @@ class PythonASTVisitor(ast.NodeVisitor):
 
         Checks for http:// string literals in contexts related to agent communication.
 
+        v0.8.0: Added localhost URL detection for FP suppression.
+
         Returns a finding dict if vulnerable, None otherwise.
         """
         # Check string arguments for http:// URLs
         for arg in node.args:
             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                 if arg.value.startswith('http://'):
+                    url = arg.value
+
+                    # v0.8.0: Suppress localhost URLs - they are almost always test/dev
+                    if is_localhost_url(url):
+                        # Return with very low confidence to effectively suppress
+                        return {
+                            'type': 'agent_comm_no_tls',
+                            'url': url,
+                            'line': node.lineno,
+                            'snippet': self._get_line(node.lineno),
+                            'owasp_id': 'ASI-07',
+                            'confidence': 0.05,  # v0.8.0: Suppress localhost URLs
+                            'localhost': True,
+                        }
+
                     # Check if in agent communication context
                     func_name = self._get_call_name(node) or ''
                     in_agent_context = any(
@@ -1579,7 +1601,7 @@ class PythonASTVisitor(ast.NodeVisitor):
                     if in_agent_context:
                         return {
                             'type': 'agent_comm_no_tls',
-                            'url': arg.value,
+                            'url': url,
                             'line': node.lineno,
                             'snippet': self._get_line(node.lineno),
                             'owasp_id': 'ASI-07',
@@ -1590,12 +1612,27 @@ class PythonASTVisitor(ast.NodeVisitor):
         for kw in node.keywords:
             if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
                 if kw.value.value.startswith('http://'):
+                    url = kw.value.value
+
+                    # v0.8.0: Suppress localhost URLs
+                    if is_localhost_url(url):
+                        return {
+                            'type': 'agent_comm_no_tls',
+                            'url': url,
+                            'keyword': kw.arg,
+                            'line': node.lineno,
+                            'snippet': self._get_line(node.lineno),
+                            'owasp_id': 'ASI-07',
+                            'confidence': 0.05,  # v0.8.0: Suppress localhost URLs
+                            'localhost': True,
+                        }
+
                     if kw.arg and any(
                         ak in kw.arg.lower() for ak in self.AGENT_COMM_KEYWORDS
                     ):
                         return {
                             'type': 'agent_comm_no_tls',
-                            'url': kw.value.value,
+                            'url': url,
                             'keyword': kw.arg,
                             'line': node.lineno,
                             'snippet': self._get_line(node.lineno),

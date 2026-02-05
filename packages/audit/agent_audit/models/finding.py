@@ -22,12 +22,30 @@ OWASP_AGENTIC_MAP: Dict[str, str] = {
 }
 
 
+# v0.8.0: Tier thresholds (recalibrated)
+TIER_THRESHOLDS = {
+    "BLOCK": 0.92,  # v0.8.0: Raised from 0.90 to reduce FP in BLOCK tier
+    "WARN": 0.60,
+    "INFO": 0.30,
+}
+
+# Privilege rules that always allow BLOCK tier regardless of context
+# These rules are critical even in test/example/infrastructure code
+BLOCK_EXEMPT_RULES = {
+    "AGENT-043",  # Daemon privileges
+    "AGENT-044",  # Sudoers NOPASSWD
+    "AGENT-046",  # System credential store access
+}
+
+
 def confidence_to_tier(confidence: float) -> str:
     """
     Convert confidence score to reporting tier.
 
+    v0.8.0: BLOCK threshold raised to 0.92 to reduce false positives.
+
     Tiers:
-    - BLOCK: confidence >= 0.90 (high confidence, should block/fail CI)
+    - BLOCK: confidence >= 0.92 (high confidence, should block/fail CI)
     - WARN: confidence >= 0.60 (medium confidence, warn user)
     - INFO: confidence >= 0.30 (low confidence, informational)
     - SUPPRESSED: confidence < 0.30 (very low confidence, suppress by default)
@@ -38,14 +56,51 @@ def confidence_to_tier(confidence: float) -> str:
     Returns:
         Tier string: "BLOCK", "WARN", "INFO", or "SUPPRESSED"
     """
-    if confidence >= 0.90:
+    if confidence >= TIER_THRESHOLDS["BLOCK"]:
         return "BLOCK"
-    elif confidence >= 0.60:
+    elif confidence >= TIER_THRESHOLDS["WARN"]:
         return "WARN"
-    elif confidence >= 0.30:
+    elif confidence >= TIER_THRESHOLDS["INFO"]:
         return "INFO"
     else:
         return "SUPPRESSED"
+
+
+def compute_tier_with_context(
+    confidence: float,
+    file_context: str,
+    rule_id: str
+) -> str:
+    """
+    Compute tier with BLOCK double-confirmation mechanism.
+
+    v0.8.0: BLOCK layer gatekeeper - test/example/infrastructure code
+    cannot enter BLOCK tier unless the rule is a privilege rule.
+
+    Args:
+        confidence: Confidence score
+        file_context: File context string ("test", "example", "infrastructure", etc.)
+        rule_id: Rule identifier
+
+    Returns:
+        Tier string
+    """
+    base_tier = confidence_to_tier(confidence)
+
+    if base_tier != "BLOCK":
+        return base_tier
+
+    # BLOCK tier double confirmation
+    # Privilege rules can always be BLOCK
+    if rule_id in BLOCK_EXEMPT_RULES:
+        return "BLOCK"
+
+    # Non-privilege rules in special contexts get downgraded to WARN
+    non_block_contexts = {"test", "fixture", "example", "infrastructure"}
+    if file_context.lower() in non_block_contexts:
+        return "WARN"
+
+    return "BLOCK"
 
 
 @dataclass

@@ -24,7 +24,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Set, Sequence
 
-from agent_audit.models.finding import Finding, Remediation, confidence_to_tier
+from agent_audit.models.finding import (
+    Finding,
+    Remediation,
+    confidence_to_tier,
+    compute_tier_with_context,
+    BLOCK_EXEMPT_RULES,
+)
 from agent_audit.models.risk import Severity, Category, Location
 from agent_audit.scanners.base import BaseScanner, ScanResult
 
@@ -524,12 +530,13 @@ class PrivilegeScanner(BaseScanner):
                 match = pattern.search(line)
                 if match:
                     # Calculate confidence
+                    # v0.8.0: Raised NOPASSWD confidence to 0.95 to ensure BLOCK tier
                     if 'NOPASSWD' in line.upper():
-                        confidence = 0.90 if not is_doc else 0.75
+                        confidence = 0.95 if not is_doc else 0.80
                     elif 'ALL=(ALL)' in line.upper():
-                        confidence = 0.85
+                        confidence = 0.90
                     else:
-                        confidence = 0.70
+                        confidence = 0.75
 
                     findings.append(PrivilegeFinding(
                         rule_id="AGENT-044",
@@ -1080,8 +1087,34 @@ class PrivilegeScanner(BaseScanner):
         return None
 
     def _convert_to_finding(self, priv_finding: PrivilegeFinding) -> Finding:
-        """Convert PrivilegeFinding to Finding model."""
-        tier = confidence_to_tier(priv_finding.confidence)
+        """Convert PrivilegeFinding to Finding model.
+
+        v0.8.0: Uses compute_tier_with_context for BLOCK exemption rules.
+        v0.8.0 P7: Applies context multipliers for non-exempt rules (AGENT-045, 047).
+        """
+        from agent_audit.analysis.context_classifier import classify_file_context
+        from agent_audit.analysis.rule_context_config import get_context_multiplier
+
+        confidence = priv_finding.confidence
+
+        # v0.8.0 P7: Apply context multipliers for non-exempt rules
+        # AGENT-045 (browser automation) in test files should be suppressed
+        if priv_finding.rule_id not in BLOCK_EXEMPT_RULES:
+            file_context = classify_file_context(priv_finding.file_path)
+            multiplier = get_context_multiplier(priv_finding.rule_id, file_context)
+            if multiplier < 1.0:
+                confidence *= multiplier
+
+        # v0.8.0: BLOCK-exempt rules (AGENT-043, 044, 046) should always BLOCK
+        # regardless of file context when confidence is high enough
+        if priv_finding.rule_id in BLOCK_EXEMPT_RULES:
+            tier = compute_tier_with_context(
+                confidence,
+                "production",  # Treat as production for exempt rules
+                priv_finding.rule_id
+            )
+        else:
+            tier = confidence_to_tier(confidence)
 
         return Finding(
             rule_id=priv_finding.rule_id,
@@ -1097,7 +1130,7 @@ class PrivilegeScanner(BaseScanner):
             ),
             cwe_id=priv_finding.cwe_id,
             owasp_id=priv_finding.owasp_id,
-            confidence=priv_finding.confidence,
+            confidence=confidence,  # v0.8.0 P7: Use adjusted confidence
             tier=tier,
             remediation=Remediation(
                 description=priv_finding.remediation

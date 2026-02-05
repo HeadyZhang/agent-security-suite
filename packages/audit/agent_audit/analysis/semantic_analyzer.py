@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 
 from agent_audit.analysis.entropy import shannon_entropy, entropy_confidence
-from agent_audit.analysis.placeholder_detector import is_placeholder
+from agent_audit.analysis.placeholder_detector import is_placeholder, is_vendor_example
 from agent_audit.analysis.value_analyzer import KNOWN_CREDENTIAL_FORMATS, detect_uuid_format
+from agent_audit.analysis.env_tracer import get_env_tracer
 from agent_audit.analysis.identifier_analyzer import (
     analyze_identifier,
     IdentifierCategory,
@@ -28,6 +29,14 @@ from agent_audit.analysis.identifier_analyzer import (
 from agent_audit.analysis.framework_detector import (
     is_credential_schema_definition,
     is_framework_internal_path,
+)
+from agent_audit.analysis.context_classifier import (
+    classify_file_context,
+    FileContext,
+)
+from agent_audit.analysis.rule_context_config import (
+    get_context_multiplier,
+    is_localhost_url,
 )
 from agent_audit.parsers.treesitter_parser import TreeSitterParser, ValueType
 
@@ -398,8 +407,9 @@ class SemanticAnalyzer:
                 )
 
         # Stage 3: Context Adjustment
+        # Note: SemanticAnalyzer is primarily used for AGENT-004 (hardcoded credentials)
         adjusted_confidence = self._stage3_context_adjustment(
-            base_confidence, file_path, candidate
+            base_confidence, file_path, candidate, rule_id="AGENT-004"
         )
 
         # v0.5.1: Cap generic patterns that don't match known formats
@@ -512,6 +522,28 @@ class SemanticAnalyzer:
                 "Schema field definition (Pydantic/dataclass) - not a hardcoded credential"
             )
 
+        # === NEW v0.8.0: F-String ENV Interpolation Detection ===
+        # Check if value appears to be an f-string with env-sourced variables
+        # This reduces confidence for patterns like: f"postgres://{DB_USER}:{DB_PASS}@..."
+        raw_text = candidate.raw_text
+        if raw_text and ('{' in raw_text or '${' in raw_text):
+            # Check if this looks like Python f-string or JS template literal
+            if "f'" in raw_text or 'f"' in raw_text or '`' in raw_text:
+                tracer = get_env_tracer()
+                # We need file content to trace env vars - check if available
+                # For now, use a heuristic: common env variable naming patterns
+                env_var_pattern = r'\{([A-Z][A-Z0-9_]*)\}'
+                import re as regex_module
+                env_matches = regex_module.findall(env_var_pattern, raw_text)
+                if env_matches:
+                    # Variable names look like environment variables (ALL_CAPS)
+                    # This is a strong signal that values come from env, not hardcoded
+                    return (
+                        True,
+                        0.15,
+                        f"F-string with env-style variables: {', '.join(env_matches[:3])}"
+                    )
+
         # === Immediate Exclusions (confidence = 0.0) ===
 
         # Exclude function calls
@@ -568,10 +600,20 @@ class SemanticAnalyzer:
         if self._looks_like_class_name(value):
             return (False, 0.1, "Value looks like class/type name")
 
+        # === NEW v0.8.0: Vendor Example Key Detection ===
+        # Check for known vendor example keys (e.g., AKIAIOSFODNN7EXAMPLE)
+        # This must happen BEFORE known format matching to avoid false positives
+        is_example, example_conf, example_reason = is_vendor_example(value)
+        if is_example and example_conf >= 0.85:
+            return (
+                False,
+                0.02,
+                f"Vendor example key detected: {example_reason}"
+            )
+
         # Check for known credential prefixes FIRST (before other patterns)
         # This ensures ghp_, sk-proj-, etc. are not rejected by other patterns
         for prefix, name, conf in HIGH_CONFIDENCE_PREFIXES:
-            if value.startswith(prefix):
                 # Private key headers are complete patterns, no random part needed
                 if prefix.startswith("-----BEGIN"):
                     return (True, conf, f"Known format: {name}")
@@ -604,10 +646,14 @@ class SemanticAnalyzer:
         self,
         base_confidence: float,
         file_path: str,
-        candidate: SemanticCandidate
+        candidate: SemanticCandidate,
+        rule_id: str = "AGENT-004"
     ) -> float:
         """
         Stage 3: Adjust confidence based on file/path context.
+
+        v0.8.0: Uses ContextClassifier for file classification and
+        per-rule context multipliers for aggressive FP suppression.
         """
         adjusted = base_confidence
 
@@ -620,7 +666,22 @@ class SemanticAnalyzer:
         elif "://" in value and "@" in value:  # Connection string with credentials
             is_critical_pattern = True
 
-        # === NEW: Framework Internal Path Detection (AGENT-004 FP Reduction) ===
+        # === v0.8.0: Context Classification ===
+        # Use the new ContextClassifier for deterministic file classification
+        file_context = classify_file_context(file_path)
+
+        # Apply per-rule context multiplier
+        # This is the core v0.8.0 improvement for FP reduction
+        if not is_critical_pattern:
+            context_multiplier = get_context_multiplier(rule_id, file_context)
+            if context_multiplier < 1.0:
+                adjusted *= context_multiplier
+                logger.debug(
+                    f"Context adjustment: {file_path} ({file_context.value}) "
+                    f"× {context_multiplier} for {rule_id}"
+                )
+
+        # === Framework Internal Path Detection (AGENT-004 FP Reduction) ===
         # Check if file is in a known framework's internal code
         is_internal, framework = is_framework_internal_path(file_path)
         if is_internal and not is_critical_pattern:
@@ -629,20 +690,28 @@ class SemanticAnalyzer:
             adjusted *= 0.15  # Strong reduction for framework internal paths
             logger.debug(f"Framework internal path ({framework}): {file_path}")
 
-        # File extension multiplier
+        # File extension multiplier (kept for backward compatibility with specific extensions)
+        # v0.8.0: Skip for file types already handled by ContextClassifier to avoid
+        # double-penalizing (e.g., .md files already get DOCUMENTATION context multiplier)
         suffix = Path(file_path).suffix.lower()
+
+        # Suffixes already handled by ContextClassifier - skip to avoid double penalty
+        CONTEXT_HANDLED_SUFFIXES = {".md", ".rst", ".txt", ".adoc"}
 
         # Check for compound suffixes like .test.py
         filename = Path(file_path).name.lower()
         multiplier_applied = 1.0
-        for compound_suffix, multiplier in FILE_TYPE_MULTIPLIERS.items():
-            if filename.endswith(compound_suffix):
-                multiplier_applied = multiplier
-                break
-        else:
-            # Check simple suffix
-            if suffix in FILE_TYPE_MULTIPLIERS:
-                multiplier_applied = FILE_TYPE_MULTIPLIERS[suffix]
+
+        # Only apply FILE_TYPE_MULTIPLIERS if not already handled by context
+        if suffix not in CONTEXT_HANDLED_SUFFIXES:
+            for compound_suffix, multiplier in FILE_TYPE_MULTIPLIERS.items():
+                if filename.endswith(compound_suffix):
+                    multiplier_applied = multiplier
+                    break
+            else:
+                # Check simple suffix
+                if suffix in FILE_TYPE_MULTIPLIERS:
+                    multiplier_applied = FILE_TYPE_MULTIPLIERS[suffix]
 
         # For critical patterns, use minimum floor of 0.85 on multiplier
         if is_critical_pattern and multiplier_applied < 0.85:
@@ -650,17 +719,19 @@ class SemanticAnalyzer:
 
         adjusted *= multiplier_applied
 
-        # Path pattern checks (test/example/fixture directories)
-        path_str = file_path.replace("\\", "/")
-        for pattern in TEST_PATH_PATTERNS:
-            if pattern.search(path_str):
-                # v0.5.1: Lower multiplier for test paths (0.55) to move generic patterns
-                # out of WARN tier. Floor for critical patterns at 0.85.
-                path_multiplier = 0.55
-                if is_critical_pattern:
-                    path_multiplier = max(path_multiplier, 0.85)
-                adjusted *= path_multiplier
-                break
+        # v0.8.0: Skip legacy TEST_PATH_PATTERNS if ContextClassifier already applied
+        # This avoids double-penalizing test files
+        if file_context == FileContext.PRODUCTION:
+            # Only apply legacy path patterns if ContextClassifier didn't catch it
+            path_str = file_path.replace("\\", "/")
+            for pattern in TEST_PATH_PATTERNS:
+                if pattern.search(path_str):
+                    # v0.5.1: Lower multiplier for test paths (0.55)
+                    path_multiplier = 0.55
+                    if is_critical_pattern:
+                        path_multiplier = max(path_multiplier, 0.85)
+                    adjusted *= path_multiplier
+                    break
 
         # Documentation context in line
         raw_lower = candidate.raw_text.lower()

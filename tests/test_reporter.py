@@ -349,16 +349,17 @@ class TestConfidenceToTier:
     """Test confidence_to_tier function."""
 
     def test_block_tier_threshold(self):
-        """Confidence >= 0.90 should be BLOCK."""
-        assert confidence_to_tier(0.90) == "BLOCK"
+        """v0.8.0: Confidence >= 0.92 should be BLOCK (raised from 0.90)."""
+        assert confidence_to_tier(0.92) == "BLOCK"
         assert confidence_to_tier(0.95) == "BLOCK"
         assert confidence_to_tier(1.0) == "BLOCK"
 
     def test_warn_tier_threshold(self):
-        """Confidence 0.60-0.89 should be WARN."""
+        """v0.8.0: Confidence 0.60-0.91 should be WARN (threshold raised)."""
         assert confidence_to_tier(0.60) == "WARN"
         assert confidence_to_tier(0.75) == "WARN"
-        assert confidence_to_tier(0.89) == "WARN"
+        assert confidence_to_tier(0.90) == "WARN"  # v0.8.0: Now WARN, was BLOCK
+        assert confidence_to_tier(0.91) == "WARN"  # v0.8.0: Now WARN, was BLOCK
 
     def test_info_tier_threshold(self):
         """Confidence 0.30-0.59 should be INFO."""
