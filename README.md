@@ -57,6 +57,31 @@ agent-audit scan . --fail-on critical
 agent-audit inspect stdio -- npx -y @modelcontextprotocol/server-filesystem /tmp
 ```
 
+## 📖 Understanding Results | 理解扫描结果
+
+When you run `agent-audit scan`, findings are reported with:
+
+| Field | Description |
+|-------|-------------|
+| **Rule ID** | Unique identifier (e.g., AGENT-034). See [Rule Reference](docs/RULES.md) |
+| **Severity** | CRITICAL > HIGH > MEDIUM > LOW > INFO |
+| **Location** | File path and line number |
+| **Message** | What was detected and why it matters |
+
+### What to Do | 如何处理
+
+| Severity | Action |
+|----------|--------|
+| **CRITICAL/HIGH** | Fix before merging. These represent exploitable vulnerabilities. |
+| **MEDIUM** | Fix when possible. These are defense-in-depth issues. |
+| **LOW/INFO** | Review and decide. May be intentional or low-risk. |
+
+To suppress a known issue, add `# noaudit` comment or configure `.agent-audit.yaml`.
+
+扫描发现问题后，CRITICAL/HIGH 需要在合并前修复，MEDIUM 尽量修复，LOW/INFO 根据情况决定。
+
+---
+
 ## 🔗 GitHub Action
 
 Add Agent Audit to your CI/CD pipeline | 添加到你的 CI/CD 流程：
@@ -90,6 +115,10 @@ jobs:
 | `baseline` | Path to baseline file for incremental scanning | - |
 | `upload-sarif` | Upload SARIF to GitHub Security tab | `true` |
 
+For more CI/CD platforms, see [CI/CD Integration Guide](docs/CI-INTEGRATION.md).
+
+其他 CI/CD 平台请参阅 [CI/CD 集成指南](docs/CI-INTEGRATION.md)。
+
 ## 🎯 OWASP Agentic Top 10 Coverage | OWASP Agentic Top 10 覆盖
 
 Agent Audit now covers the full **OWASP Agentic Top 10 for 2026** (ASI-01 ~ ASI-10).
@@ -109,37 +138,28 @@ Agent Audit 现已完整覆盖 **OWASP Agentic Top 10 for 2026** (ASI-01 ~ ASI-1
 | ASI-09 | Human-Agent Trust Exploitation | AGENT-023 | ✅ |
 | ASI-10 | Rogue Agents | AGENT-024, AGENT-025 | ✅ |
 
-## 📋 Complete Rule List | 完整规则列表
+## 📋 Rules | 规则
 
-### Original Rules (v0.1.x)
+Agent Audit includes **40 built-in rules** covering all 10 OWASP Agentic categories:
 
-| Rule ID | Title | Severity |
-|---------|-------|----------|
-| AGENT-001 | Command Injection via Unsanitized Input | 🔴 Critical |
-| AGENT-002 | Excessive Agent Permissions | 🟡 Medium |
-| AGENT-003 | Potential Data Exfiltration Chain | 🟠 High |
-| AGENT-004 | Hardcoded Credentials | 🔴 Critical |
-| AGENT-005 | Unverified MCP Server | 🟠 High |
+Agent Audit 包含 **40 条内置规则**，覆盖所有 10 个 OWASP Agentic 类别：
 
-### New Rules (v0.2.0 - OWASP Agentic)
+| Category | Rules | Example Issues |
+|----------|-------|----------------|
+| ASI-01: Goal Hijacking | 4 | Prompt injection, missing goal validation |
+| ASI-02: Tool Misuse | 9 | Command injection, SQL injection, unsanitized input |
+| ASI-03: Privilege Abuse | 4 | Excessive permissions, long-lived credentials |
+| ASI-04: Supply Chain | 5 | Unverified MCP servers, unpinned dependencies |
+| ASI-05: Code Execution | 3 | Unsandboxed exec, data exfiltration chain |
+| ASI-06: Memory Poisoning | 2 | Unsanitized memory input, unbounded history |
+| ASI-07: Inter-Agent Comms | 1 | Unencrypted channels |
+| ASI-08: Cascading Failures | 3 | Missing circuit breaker, no error handling |
+| ASI-09: Trust Exploitation | 6 | Missing human approval, impersonation risk |
+| ASI-10: Rogue Agents | 3 | No kill switch, self-modification risk |
 
-| Rule ID | Title | OWASP | Severity |
-|---------|-------|-------|----------|
-| AGENT-010 | System Prompt Injection Vector | ASI-01 | 🔴 Critical |
-| AGENT-011 | Missing Goal Validation / Instruction Boundary | ASI-01 | 🟠 High |
-| AGENT-013 | Agent with Long-Lived or Shared Credentials | ASI-03 | 🟠 High |
-| AGENT-014 | Overly Permissive Agent Role / Tool Access | ASI-03 | 🟠 High |
-| AGENT-015 | Untrusted MCP Server Source | ASI-04 | 🔴 Critical |
-| AGENT-016 | Unvalidated RAG Data Source | ASI-04 | 🟠 High |
-| AGENT-017 | Unsandboxed Code Execution in Agent | ASI-05 | 🔴 Critical |
-| AGENT-018 | Unsanitized Input to Persistent Memory | ASI-06 | 🔴 Critical |
-| AGENT-019 | Conversation History Without Integrity Protection | ASI-06 | 🟡 Medium |
-| AGENT-020 | Unencrypted or Unauthenticated Inter-Agent Channel | ASI-07 | 🟠 High |
-| AGENT-021 | Missing Circuit Breaker / Max Iterations | ASI-08 | 🟠 High |
-| AGENT-022 | No Error Handling in Tool Execution | ASI-08 | 🟡 Medium |
-| AGENT-023 | Agent Output Without Transparency / Audit Trail | ASI-09 | 🟡 Medium |
-| AGENT-024 | Agent Without Kill Switch / Shutdown Mechanism | ASI-10 | 🔴 Critical |
-| AGENT-025 | Agent Without Behavioral Monitoring / Logging | ASI-10 | 🟠 High |
+See **[Rule Reference](docs/RULES.md)** for complete details, fix guidance, and code examples.
+
+完整规则详情、修复指南和代码示例请查看 **[规则参考](docs/RULES.md)**。
 
 ## ⚙️ Configuration | 配置
 
@@ -195,6 +215,15 @@ Options:
   -q          Only show errors
   --help      Show this message
 ```
+
+## 📚 Documentation | 文档
+
+| Document | Description |
+|----------|-------------|
+| **[Rule Reference](docs/RULES.md)** | All 40 rules with fix guidance and code examples |
+| **[CI/CD Integration](docs/CI-INTEGRATION.md)** | GitHub Actions, GitLab, Jenkins, Azure DevOps |
+| **[API Stability](docs/STABILITY.md)** | What interfaces you can depend on |
+| **[Contributing](CONTRIBUTING.md)** | Development setup and guidelines |
 
 ## 🛠️ Development | 开发
 

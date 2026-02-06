@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Discussions
+    url: https://github.com/HeadyZhang/agent-audit/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions
+  - name: Documentation
+    url: https://github.com/HeadyZhang/agent-audit/blob/main/docs/RULES.md
+    about: Check the rule reference for detailed information about each rule
