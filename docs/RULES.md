@@ -1325,6 +1325,101 @@ def update_config(config_dict: dict):
 
 ---
 
+## Rules by Scanner
+
+### PythonScanner
+
+The Python AST scanner detects patterns in Python source code using the built-in `ast` module.
+
+| Rule | Title | Detection Method |
+|------|-------|------------------|
+| AGENT-001 | Command Injection | Dangerous function calls (`subprocess.run`, `os.system`, `eval`, `exec`) |
+| AGENT-003 | Data Exfiltration Chain | Permission analysis (sensitive data + network access) |
+| AGENT-010 | System Prompt Injection | f-string in `SystemMessage`, `ChatPromptTemplate` |
+| AGENT-011 | Missing Goal Validation | Agent configuration without `allowed_tools`, `max_iterations` |
+| AGENT-013 | Long-Lived Credentials | Hardcoded API keys near agent/tool instantiation |
+| AGENT-014 | Overly Permissive Role | Dangerous tool combinations, auto-approval patterns |
+| AGENT-016 | Unvalidated RAG Source | Loader functions without validation |
+| AGENT-017 | Unsandboxed Code Execution | `eval`/`exec` in tool decorators without sandbox guards |
+| AGENT-018 | Unsanitized Memory Input | Write functions without sanitization |
+| AGENT-019 | Conversation History Risk | Unbounded memory classes |
+| AGENT-020 | Insecure Inter-Agent Channel | Multi-agent classes without auth config |
+| AGENT-021 | Missing Circuit Breaker | `AgentExecutor` without `max_iterations` |
+| AGENT-022 | No Error Handling | Tool functions without try/except |
+| AGENT-023 | Opaque Agent Output | Agent without `return_intermediate_steps` |
+| AGENT-024 | No Kill Switch | Long-running agents without timeout/monitor |
+| AGENT-025 | No Behavioral Monitoring | Agent without callbacks/logging |
+| AGENT-026 | Tool Input Not Sanitized | `@tool` with str params flowing to dangerous sinks |
+| AGENT-027 | Injectable System Prompt | f-string in message classes |
+| AGENT-028 | Unbounded Iterations | Agent without iteration limits |
+| AGENT-034 | Tool Without Validation | `@tool` functions missing validation checks |
+| AGENT-035 | Unrestricted Execution | Tool with `eval`/`exec`/`shell=True` |
+| AGENT-036 | Unsanitized Tool Output | Tool output directly in prompts |
+| AGENT-037 | Missing Human Approval | Side-effect tools without approval handlers |
+| AGENT-041 | SQL Injection | f-string in `cursor.execute()` |
+| AGENT-050 | AgentExecutor Risk | `AgentExecutor` without safety parameters |
+| AGENT-052 | Sensitive Logging | Logging with sensitive variable interpolation |
+| AGENT-053 | Self-Modification | Writing to .py files + `importlib.reload` |
+
+### SecretScanner
+
+Regex-based credential detection with semantic analysis for false positive reduction.
+
+| Rule | Title | Detection Method |
+|------|-------|------------------|
+| AGENT-004 | Hardcoded Credentials | Known API key patterns (AWS, OpenAI, Anthropic, GitHub, etc.) |
+
+Patterns detected:
+- AWS Access Keys (`AKIA...`)
+- OpenAI API Keys (`sk-proj-...`, `sk-...`)
+- Anthropic API Keys (`sk-ant-...`)
+- GitHub Tokens (`ghp_`, `gho_`, `ghs_`, `ghr_`)
+- Google API Keys (`AIza...`)
+- Stripe Keys (`sk_live_`, `sk_test_`)
+- Database connection strings with credentials
+- Private keys (RSA, DSA, EC, PGP)
+- Generic secrets with keyword context
+
+### MCPConfigScanner
+
+Static analyzer for MCP server configuration files (JSON/YAML).
+
+| Rule | Title | Detection Method |
+|------|-------|------------------|
+| AGENT-005 | Unverified MCP Server | Server not from trusted sources |
+| AGENT-015 | Untrusted MCP Source | `npx` without version pinning |
+| AGENT-029 | Broad Filesystem Access | Dangerous paths (`/`, `~`, `/etc`) |
+| AGENT-030 | Unverified Server Source | Unpinned packages, HTTP URLs |
+| AGENT-031 | Sensitive Env Exposure | Hardcoded values in env config |
+| AGENT-032 | No Sandbox Isolation | stdio transport without container |
+| AGENT-033 | Missing Authentication | SSE/HTTP without auth config |
+| AGENT-040 | Insecure Tool Schema | `additionalProperties: true`, missing types |
+| AGENT-042 | Excessive MCP Servers | >10 servers configured |
+
+Config files scanned:
+- `claude_desktop_config.json`
+- `mcp.json`, `mcp.yaml`
+- `cline_mcp_settings.json`
+- `.cursor/mcp.json`
+
+### PrivilegeScanner
+
+Cross-language scanner for privilege escalation patterns.
+
+| Rule | Title | Detection Method |
+|------|-------|------------------|
+| AGENT-002 | Excessive Permissions | Tool count/permission analysis |
+| AGENT-038 | Impersonation Risk | Regex patterns in system prompts |
+| AGENT-039 | Trust Boundary Violation | Multi-agent classes without auth |
+
+Additional patterns detected:
+- Daemon/service registration (`launchctl`, `systemctl`, `pm2`)
+- Sudoers/NOPASSWD configurations
+- Browser automation without sandbox
+- System credential store access
+
+---
+
 ## Suppressing Findings
 
 ### Inline Suppression
@@ -1372,4 +1467,4 @@ agent-audit scan . --baseline baseline.json
 
 ---
 
-*40 rules as of v0.16.0*
+*40 rules as of v0.15.1*
