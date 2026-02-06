@@ -15,5 +15,33 @@ htmlcov/
 .coverage
 *.sarif
 
-# Internal development docs (specs is private)
+# Internal development docs (not for public release)
 specs/
+
+# Claude Code prompts and execution summaries
+PROMPT-*.md
+EXECUTE-*.md
+CLAUDE-PROMPT-*.md
+*-EXECUTION-SUMMARY.md
+*-BENCHMARK-RESULTS.md
+
+# Internal version-specific specs and reports
+docs/v*.0-*-spec.md
+docs/v*-claude-code-prompt.md
+docs/v*-verification-report.md
+docs/v*-validation-report.md
+docs/v*-comparison-data.txt
+docs/v*-evaluation.md
+docs/*-optimization-spec.md
+docs/*-benchmark-fix-spec.md
+
+# Benchmark results (generated)
+tests/benchmark/agent-vuln-bench/results/
+
+# Internal execution plans
+v*.md
+*-EXECUTION-PLAN.md
+*-FIX-SUMMARY.md
+
+# macOS
+.DS_Store
