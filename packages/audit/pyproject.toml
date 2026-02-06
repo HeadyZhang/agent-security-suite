@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "agent-audit"
-version = "0.12.0"
+version = "0.15.1"
 description = "Security scanner for AI agents and MCP configurations - Based on OWASP Agentic Top 10"
 authors = ["Agent Security Team <security@example.com>"]
 license = "MIT"
