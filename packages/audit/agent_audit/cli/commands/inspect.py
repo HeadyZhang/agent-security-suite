@@ -191,9 +191,9 @@ def run_inspect(
     return asyncio.run(run_inspect_async(target, transport, timeout, output_format))
 
 
-@click.command()
+@click.command(context_settings=dict(ignore_unknown_options=True))
 @click.argument('transport_type', type=click.Choice(['stdio', 'sse']), required=True)
-@click.argument('target', nargs=-1, required=True)
+@click.argument('target', nargs=-1, type=click.UNPROCESSED, required=True)
 @click.option('--timeout', '-t', default=30, help='Connection timeout in seconds')
 @click.option('--format', '-f', 'output_format',
               type=click.Choice(['terminal', 'json']), default='terminal',
@@ -206,7 +206,7 @@ def inspect(transport_type: str, target: tuple, timeout: int, output_format: str
 
     For stdio, TARGET is the command to run the server:
 
-        agent-audit inspect stdio -- python my_mcp_server.py
+        agent-audit inspect stdio -- npx -y @modelcontextprotocol/server-filesystem /tmp
 
     For sse, TARGET is the URL:
 
