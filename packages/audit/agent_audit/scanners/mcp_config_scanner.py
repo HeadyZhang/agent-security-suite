@@ -946,7 +946,7 @@ class MCPConfigScanner(BaseScanner):
                         ),
                         severity="medium",
                         line=1,
-                        snippet=f"inputSchema.additionalProperties: true",
+                        snippet="inputSchema.additionalProperties: true",
                         owasp_id="ASI-02"
                     ))
 
