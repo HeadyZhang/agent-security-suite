@@ -522,8 +522,8 @@ class SourceClassifier(ast.NodeVisitor):
 
     def _get_attribute_chain(self, node: ast.Attribute) -> str:
         """Get full attribute chain like 'os.environ.get'."""
-        parts = []
-        current = node
+        parts: List[str] = []
+        current: ast.expr = node
         while isinstance(current, ast.Attribute):
             parts.append(current.attr)
             current = current.value
@@ -696,8 +696,8 @@ class DataFlowBuilder(ast.NodeVisitor):
 
     def _get_attribute_chain(self, node: ast.Attribute) -> str:
         """Get full attribute chain."""
-        parts = []
-        current = node
+        parts: List[str] = []
+        current: ast.expr = node
         while isinstance(current, ast.Attribute):
             parts.append(current.attr)
             current = current.value
@@ -886,8 +886,8 @@ class SanitizationDetector(ast.NodeVisitor):
 
     def _get_attribute_chain(self, node: ast.Attribute) -> str:
         """Get full attribute chain."""
-        parts = []
-        current = node
+        parts: List[str] = []
+        current: ast.expr = node
         while isinstance(current, ast.Attribute):
             parts.append(current.attr)
             current = current.value
@@ -1081,8 +1081,8 @@ class SinkReachabilityChecker:
 
     def _get_attribute_chain(self, node: ast.Attribute) -> str:
         """Get full attribute chain."""
-        parts = []
-        current = node
+        parts: List[str] = []
+        current: ast.expr = node
         while isinstance(current, ast.Attribute):
             parts.append(current.attr)
             current = current.value
