@@ -95,6 +95,61 @@ agent-audit inspect stdio -- npx -y @modelcontextprotocol/server-filesystem /tmp
 
 ---
 
+## 📊 Benchmark Results | 基准测试结果
+
+agent-audit is evaluated on a **3-layer benchmark system** covering synthetic fixtures, real-world open-source projects, and a dedicated vulnerability detection benchmark.
+
+### Agent-Vuln-Bench (AVB)
+
+[Agent-Vuln-Bench](tests/benchmark/agent-vuln-bench/) is an SWE-bench-style evaluation suite with 19 samples across 3 vulnerability sets, each with oracle ground truth. Evaluated against Bandit and Semgrep as baselines:
+
+| Metric | agent-audit | Bandit 1.8.6 | Semgrep 1.136.0 |
+|--------|------------|-------------|--------------------|
+| **Recall** | **94.6%** | 29.7% | 27.0% |
+| **Precision** | 87.5% | 100.0% | 100.0% |
+| **F1 Score** | **0.909** | 0.458 | 0.426 |
+| True Positives | **35** | 11 | 10 |
+| Scan time | 2.9s | 1.7s | 55.4s |
+
+**Per-Set Recall:**
+
+| Set | Description | agent-audit | Bandit | Semgrep |
+|-----|-------------|------------|--------|---------|
+| **A** | Injection & RCE (eval, exec, subprocess, SSRF, SQLi) | **100.0%** | 68.8% | 56.2% |
+| **B** | MCP & Component (config misuse, wildcard grants, unpinned packages) | **100.0%** | 0.0% | 0.0% |
+| **C** | Data & Auth (hardcoded credentials, JWT tokens, sensitive logging) | **84.6%** | 0.0% | 7.7% |
+
+Key differentiators:
+- **Set B: 100% vs 0%** — Bandit and Semgrep cannot parse MCP JSON configurations. agent-audit is the only tool that detects overly broad filesystem access, wildcard command grants, and hardcoded credentials in MCP configs.
+- **Set A: @tool context awareness** — Taint analysis tracks LLM-controllable input flowing to dangerous sinks within `@tool` decorated functions, catching SQL injection, SSRF, and prompt injection that generic tools miss.
+- **Set C: Semantic credential analysis** — Three-stage analyzer (pattern match, value analysis, context scoring) detects credentials in complex formats (JWT tokens, connection strings) while suppressing framework schema definitions.
+
+### Layer 2: Real-World Framework Scan
+
+9 real-world open-source projects scanned to validate detection quality and false positive rates:
+
+| Target | Project | Findings | OWASP Categories |
+|--------|---------|----------|------------------|
+| T1 | [damn-vulnerable-llm-agent](https://github.com/WithSecureLabs/damn-vulnerable-llm-agent) | 4 | ASI-01, ASI-02, ASI-06 |
+| T2 | [DamnVulnerableLLMProject](https://github.com/harishsg993010/DamnVulnerableLLMProject) | 41 | ASI-01, ASI-02, ASI-04 |
+| T3 | [langchain-core](https://github.com/langchain-ai/langchain) | 3 | ASI-01, ASI-02 |
+| T6 | [openai-agents-python](https://github.com/openai/openai-agents-python) | 25 | ASI-01, ASI-02 |
+| T7 | [adk-python](https://github.com/google/adk-python) | 40 | ASI-02, ASI-04, ASI-10 |
+| T8 | [agentscope](https://github.com/modelscope/agentscope) | 10 | ASI-02 |
+| T9 | [crewAI](https://github.com/crewAIInc/crewAI) | 155 | ASI-01, ASI-02, ASI-04, ASI-07, ASI-08, ASI-10 |
+| T10 | MCP Config (100-tool server) | 8 | ASI-02, ASI-03, ASI-04, ASI-05, ASI-09 |
+| T11 | [streamlit-agent](https://github.com/langchain-ai/streamlit-agent) | 6 | ASI-01, ASI-04, ASI-08 |
+
+**Quality Gate: PASS** — 10/10 OWASP Agentic Top 10 categories detected across targets.
+
+### Unit Tests
+
+```
+1142 passed, 1 skipped in 3.25s
+```
+
+---
+
 ## 🔗 GitHub Action
 
 ### Basic Integration | 基础集成
