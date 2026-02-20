@@ -18,11 +18,18 @@ htmlcov/
 # Internal development docs (not for public release)
 specs/
 
-# Claude Code prompts and execution summaries
+# Claude Code configuration and prompts
+CLAUDE.md
 PROMPT-*.md
 EXECUTE-*.md
 CLAUDE-PROMPT-*.md
 *-EXECUTION-SUMMARY.md
+
+# Scan reports (generated)
+cybergym-*.md
+cybergym-*.json
+
+# Internal benchmark results (version-specific)
 *-BENCHMARK-RESULTS.md
 
 # Internal version-specific specs and reports

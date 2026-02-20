@@ -1,132 +1,88 @@
 # Agent Audit
 
 [![PyPI version](https://img.shields.io/pypi/v/agent-audit?color=blue)](https://pypi.org/project/agent-audit/)
-[![Python](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/agent-audit/)
+[![Python](https://img.shields.io/pypi/pyversions/agent-audit.svg)](https://pypi.org/project/agent-audit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/HeadyZhang/agent-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/HeadyZhang/agent-audit/actions/workflows/ci.yml)
-[![OWASP Coverage](https://img.shields.io/badge/OWASP%20Agentic-10%2F10-brightgreen)](https://genai.owasp.org/)
+[![Tests](https://img.shields.io/badge/tests-1142%20passed-brightgreen)]()
 
-> **The first open-source static analyzer purpose-built for AI agent code.**
-> Maps every finding to the [OWASP Agentic Top 10 (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). 40+ detection rules. Native support for LangChain, CrewAI, AutoGen, and MCP.
->
-> **首个专为 AI Agent 代码设计的开源静态分析器。**
-> 每项发现均映射到 OWASP Agentic Top 10 (2026)。40+ 检测规则。原生支持 LangChain、CrewAI、AutoGen 和 MCP。
+> **The first open-source static security analyzer purpose-built for AI agent applications.**
+> 40+ detection rules mapped to the [OWASP Agentic Top 10 (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). Intra-procedural taint analysis. MCP configuration auditing. Three-stage semantic credential detection.
 
-<p align="center">
-  <img src="docs/demo.png" alt="Agent Audit Demo" width="800">
-</p>
+## Evaluation Results
 
----
+Evaluated on [**Agent-Vuln-Bench**](tests/benchmark/agent-vuln-bench/) (19 samples across 3 vulnerability categories), compared against Bandit and Semgrep:
 
-## ✨ Features | 核心能力
+| Tool | Recall | Precision | F1 |
+|------|-------:|----------:|---:|
+| **agent-audit** | **94.6%** | **87.5%** | **0.91** |
+| Bandit 1.8 | 29.7% | 100% | 0.46 |
+| Semgrep 1.x | 27.0% | 100% | 0.43 |
 
-### Detection Engines | 检测引擎
+| Category | agent-audit | Bandit | Semgrep |
+|----------|:-----------:|:-----:|:-------:|
+| Set A — Injection / RCE | **100%** | 68.8% | 56.2% |
+| Set B — MCP Configuration | **100%** | 0% | 0% |
+| Set C — Data / Auth | **84.6%** | 0% | 7.7% |
 
-| Engine | What it does |
-|--------|--------------|
-| **Python AST Scanner** | Deep analysis of agent code: tool decorators, executor instantiation, dangerous sinks (`eval`, `subprocess`, `cursor.execute`) |
-| **Taint Tracker** | Intra-procedural data flow analysis from user input → dangerous operations |
-| **Semantic Analyzer** | 3-stage credential detection: regex patterns → entropy/placeholder analysis → context scoring |
-| **MCP Config Scanner** | Validates `claude_desktop_config.json` / MCP Gateway configs for filesystem exposure, unpinned packages, missing auth |
-| **MCP Runtime Inspector** | Probes live MCP servers via stdio/SSE without executing tools — "Nmap for AI agents" |
+> Neither Bandit nor Semgrep can parse MCP configuration files — they achieve **0% recall** on agent-specific configuration vulnerabilities (Set B).
 
-### Under the Hood | 引擎细节
+Full evaluation details: [Benchmark Results](docs/BENCHMARK-RESULTS.md) | [Competitive Comparison](docs/COMPETITIVE-COMPARISON.md)
 
-- **TaintTracker** — Tracks data flow from sources (`request`, `user_input`, `query`) to sinks (`exec`, `subprocess.run`, `cursor.execute`)
-- **SemanticAnalyzer** — Three-stage credential analysis: (1) regex candidate discovery, (2) entropy + placeholder detection, (3) file path / framework context adjustment
-- **DangerousOperationAnalyzer** — Identifies when `@tool` function parameters flow to shell execution, SQL queries, or file writes
-- **PrivilegeScanner** — Detects daemon registration (`launchctl`, `systemctl`), sudoers NOPASSWD, unsandboxed browser automation, credential store access
-- **Framework-aware rules** — Specific detections for `AgentExecutor`, `@tool`, `SystemMessage`, `Crew`, `ConversableAgent`
-- **Confidence tiering** — Every finding scored 0.0–1.0, classified as `BLOCK` (≥0.9) / `WARN` (≥0.6) / `INFO` (≥0.3) / `SUPPRESSED`
+## How It Works
 
----
-
-## 🚀 Quick Start | 快速开始
-
-### Installation | 安装
-
-```bash
-# 推荐：pipx（自动处理 PATH，隔离环境）
-pipx install agent-audit
-
-# 或 pip
-pip install agent-audit
-
-# 如果 pip 安装后找不到命令
-python3 -m agent_audit --version
+```
+Source Files (.py, .json, .yaml, .env, ...)
+        |
+        +-- PythonScanner ---- AST Analysis ---- Dangerous Patterns
+        |        |                                Tool Metadata
+        |        +-- TaintTracker --------------- Source->Sink Reachability
+        |        +-- DangerousOperationAnalyzer - Tool Boundary Detection
+        |
+        +-- SecretScanner ---- Regex Candidates
+        |        +-- SemanticAnalyzer ----------- 3-Stage Filtering
+        |              (Known Formats -> Entropy/Placeholder -> Context)
+        |
+        +-- MCPConfigScanner -- Server Provenance / Path Permissions / Auth
+        |
+        +-- PrivilegeScanner -- Daemon / Sudoers / Sandbox / Credential Store
+                 |
+                 v
+            RuleEngine -- 40+ Rules x OWASP Agentic Top 10 -- Findings
 ```
 
-### Basic Usage | 基本使用
+**Key technical contributions:**
 
-```bash
-# Scan current directory
-agent-audit scan .
+- **Tool-boundary-aware taint analysis** — Tracks data flow from `@tool` function parameters to dangerous sinks (`eval`, `subprocess.run`, `cursor.execute`), with sanitization detection. Only triggers when a confirmed tool entry point has unsanitized parameters flowing to dangerous operations.
 
-# Output SARIF for GitHub Code Scanning
-agent-audit scan . --format sarif --output results.sarif
+- **MCP configuration auditing** — Parses `claude_desktop_config.json` and MCP gateway configs to detect unverified server sources, overly broad filesystem permissions, missing authentication, and unpinned package versions — a category entirely missed by existing SAST tools.
 
-# Fail CI only on critical/high findings
-agent-audit scan . --fail-on high
+- **Three-stage semantic credential detection** — (1) Regex candidate discovery with priority tiers, (2) value analysis with known-format matching, entropy scoring, and placeholder/UUID exclusion, (3) context adjustment by file type, test patterns, and framework schema detection.
 
-# Inspect a live MCP server (without executing tools)
-agent-audit inspect stdio -- npx -y @modelcontextprotocol/server-filesystem /tmp
-```
+## Threat Coverage
 
----
+40+ detection rules covering all 10 categories of the [OWASP Agentic Top 10 (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/):
 
-## 🎯 Detection Coverage | 检测覆盖
+| OWASP Category | Rules | Example Detections |
+|----------------|------:|-------------------|
+| ASI-01 Agent Goal Hijack | 4 | Prompt injection via f-string in `SystemMessage` |
+| ASI-02 Tool Misuse | 9 | `@tool` input to `subprocess` without validation |
+| ASI-03 Identity & Privilege | 4 | Daemon privilege escalation, >10 MCP servers |
+| ASI-04 Supply Chain | 5 | Unverified MCP source, unpinned `npx` packages |
+| ASI-05 Code Execution | 3 | `eval`/`exec` in tool without sandbox |
+| ASI-06 Memory Poisoning | 2 | Unsanitized input to vector store `upsert` |
+| ASI-07 Inter-Agent Comm | 1 | Multi-agent over HTTP without TLS |
+| ASI-08 Cascading Failures | 3 | `AgentExecutor` without `max_iterations` |
+| ASI-09 Trust Exploitation | 6 | Critical ops without `human_in_the_loop` |
+| ASI-10 Rogue Agents | 3 | No kill switch, no behavior monitoring |
 
-**40 rules** mapped to the complete **OWASP Agentic Top 10 (2026)**:
+Framework-specific detection for **LangChain**, **CrewAI**, **AutoGen**, and **AgentScope**.
 
-| ASI | Category | Rules | Key Detections |
-|-----|----------|-------|----------------|
-| **ASI-01** | Goal Hijacking | `AGENT-010` `011` `027` `050` | System prompt injection, f-string in `SystemMessage`, `AgentExecutor` without safety params |
-| **ASI-02** | Tool Misuse | `AGENT-001` `026` `029` `032` `034` `035` `036` `040` `041` | Command injection, SQL injection via f-string, `@tool` without input validation, overly broad MCP filesystem access |
-| **ASI-03** | Privilege Abuse | `AGENT-002` `013` `014` `042` | Excessive tool grants, long-lived credentials, daemon privilege escalation, >10 MCP servers |
-| **ASI-04** | Supply Chain | `AGENT-004` `005` `015` `016` `030` | Hardcoded API keys, unpinned `npx` packages, unverified MCP servers, unvalidated RAG sources |
-| **ASI-05** | Code Execution | `AGENT-003` `017` `031` | Unsandboxed `eval`/`exec`, data exfiltration chain (sensitive data + network access) |
-| **ASI-06** | Memory Poisoning | `AGENT-018` `019` | Unsanitized input to vector stores, unbounded conversation history |
-| **ASI-07** | Inter-Agent Comms | `AGENT-020` | Unencrypted/unauthenticated multi-agent channels |
-| **ASI-08** | Cascading Failures | `AGENT-021` `022` `028` | Missing `max_iterations`, no error handling in tools, unbounded agent loops |
-| **ASI-09** | Trust Exploitation | `AGENT-023` `033` `037` `038` `039` `052` | Opaque agent output, MCP without auth, missing human approval, agent impersonation prompts, sensitive data logging |
-| **ASI-10** | Rogue Agents | `AGENT-024` `025` `053` | No kill switch, no behavioral monitoring, agent self-modification |
+See [Rule Reference](docs/RULES.md) for the complete catalog with CWE mappings and remediation guidance.
 
-📖 **[Full Rule Reference →](docs/RULES.md)** — Every rule with CWE mapping, fix guidance, and code examples.
+## Real-World Validation
 
----
-
-## 📊 Benchmark Results | 基准测试结果
-
-agent-audit is evaluated on a **3-layer benchmark system** covering synthetic fixtures, real-world open-source projects, and a dedicated vulnerability detection benchmark.
-
-### Agent-Vuln-Bench (AVB)
-
-[Agent-Vuln-Bench](tests/benchmark/agent-vuln-bench/) is an SWE-bench-style evaluation suite with 19 samples across 3 vulnerability sets, each with oracle ground truth. Evaluated against Bandit and Semgrep as baselines:
-
-| Metric | agent-audit | Bandit 1.8.6 | Semgrep 1.136.0 |
-|--------|------------|-------------|--------------------|
-| **Recall** | **94.6%** | 29.7% | 27.0% |
-| **Precision** | 87.5% | 100.0% | 100.0% |
-| **F1 Score** | **0.909** | 0.458 | 0.426 |
-| True Positives | **35** | 11 | 10 |
-| Scan time | 2.9s | 1.7s | 55.4s |
-
-**Per-Set Recall:**
-
-| Set | Description | agent-audit | Bandit | Semgrep |
-|-----|-------------|------------|--------|---------|
-| **A** | Injection & RCE (eval, exec, subprocess, SSRF, SQLi) | **100.0%** | 68.8% | 56.2% |
-| **B** | MCP & Component (config misuse, wildcard grants, unpinned packages) | **100.0%** | 0.0% | 0.0% |
-| **C** | Data & Auth (hardcoded credentials, JWT tokens, sensitive logging) | **84.6%** | 0.0% | 7.7% |
-
-Key differentiators:
-- **Set B: 100% vs 0%** — Bandit and Semgrep cannot parse MCP JSON configurations. agent-audit is the only tool that detects overly broad filesystem access, wildcard command grants, and hardcoded credentials in MCP configs.
-- **Set A: @tool context awareness** — Taint analysis tracks LLM-controllable input flowing to dangerous sinks within `@tool` decorated functions, catching SQL injection, SSRF, and prompt injection that generic tools miss.
-- **Set C: Semantic credential analysis** — Three-stage analyzer (pattern match, value analysis, context scoring) detects credentials in complex formats (JWT tokens, connection strings) while suppressing framework schema definitions.
-
-### Layer 2: Real-World Framework Scan
-
-9 real-world open-source projects scanned to validate detection quality and false positive rates:
+Scanned 9 open-source projects to validate detection quality across intentionally vulnerable apps, production frameworks, and MCP configurations:
 
 | Target | Project | Findings | OWASP Categories |
 |--------|---------|----------|------------------|
@@ -140,235 +96,131 @@ Key differentiators:
 | T10 | MCP Config (100-tool server) | 8 | ASI-02, ASI-03, ASI-04, ASI-05, ASI-09 |
 | T11 | [streamlit-agent](https://github.com/langchain-ai/streamlit-agent) | 6 | ASI-01, ASI-04, ASI-08 |
 
-**Quality Gate: PASS** — 10/10 OWASP Agentic Top 10 categories detected across targets.
+**10/10 OWASP Agentic Top 10 categories detected** across targets. Quality gate: **PASS**.
 
-### Unit Tests
+## Quick Start
 
+### Installation
+
+```bash
+pip install agent-audit
 ```
-1142 passed, 1 skipped in 3.25s
+
+### Usage
+
+```bash
+# Scan a project directory
+agent-audit scan ./my-agent-project
+
+# JSON output for programmatic use
+agent-audit scan . --format json
+
+# SARIF output for GitHub Code Scanning integration
+agent-audit scan . --format sarif --output results.sarif
+
+# Only fail CI on critical/high findings
+agent-audit scan . --fail-on high
+
+# Runtime MCP server inspection (read-only probe)
+agent-audit inspect stdio -- npx -y @modelcontextprotocol/server-filesystem /tmp
 ```
 
----
-
-## 🔗 GitHub Action
-
-### Basic Integration | 基础集成
+### GitHub Actions
 
 ```yaml
 name: Agent Security Scan
 on: [push, pull_request]
-
-jobs:
-  agent-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run Agent Audit
-        uses: HeadyZhang/agent-audit@v1
-        with:
-          path: '.'
-          fail-on: 'high'
-          upload-sarif: 'true'
-```
-
-### PR Comment Integration | PR 评论集成
-
-Automatically post scan results as a PR comment:
-
-```yaml
-name: Agent Audit PR Review
-on: pull_request
-
 jobs:
   audit:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      security-events: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Run Agent Audit
-        id: audit
-        uses: HeadyZhang/agent-audit@v1
+      - uses: HeadyZhang/agent-audit@v1
         with:
           path: '.'
-          format: 'sarif'
           fail-on: 'high'
           upload-sarif: 'true'
-        continue-on-error: true
-
-      - name: Comment PR with Results
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const outcome = '${{ steps.audit.outcome }}';
-            const status = outcome === 'success' ? '✅ Passed' : '⚠️ Issues Found';
-            const body = `## 🛡️ Agent Audit Results\n\n**Status:** ${status}\n\n📄 Full results available in the **Security** tab.`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
 ```
 
-### Scheduled Full Scan | 定时全量扫描
-
-Run a comprehensive weekly audit:
+## Configuration
 
 ```yaml
-name: Weekly Agent Security Audit
-on:
-  schedule:
-    - cron: '0 9 * * 1'  # Every Monday 9:00 AM UTC
-  workflow_dispatch:     # Allow manual trigger
-
-jobs:
-  full-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Full Audit
-        uses: HeadyZhang/agent-audit@v1
-        with:
-          path: '.'
-          severity: 'info'        # Report all findings
-          fail-on: 'critical'     # Only fail on critical
-          upload-sarif: 'true'
-```
-
-### Action Inputs | Action 参数
-
-| Input | Description | Default |
-|-------|-------------|---------|
-| `path` | Path to scan | `.` |
-| `format` | Output format: `terminal`, `json`, `sarif`, `markdown` | `sarif` |
-| `severity` | Minimum severity to report: `info`, `low`, `medium`, `high`, `critical` | `low` |
-| `fail-on` | Exit non-zero if findings at this severity or above | `high` |
-| `baseline` | Path to baseline file for incremental scanning | - |
-| `upload-sarif` | Upload SARIF to GitHub Security tab | `true` |
-
-For GitLab CI, Jenkins, Azure DevOps → **[CI/CD Integration Guide](docs/CI-INTEGRATION.md)**
-
----
-
-## 📖 Understanding Results | 理解扫描结果
-
-| Field | Description |
-|-------|-------------|
-| **Rule ID** | Unique identifier (e.g., `AGENT-034`). See [Rule Reference](docs/RULES.md) |
-| **Severity** | `CRITICAL` > `HIGH` > `MEDIUM` > `LOW` > `INFO` |
-| **Confidence** | `BLOCK` (≥0.9) / `WARN` (≥0.6) / `INFO` (≥0.3) — higher = fewer false positives |
-| **Location** | File path and line number |
-
-### What to Do | 如何处理
-
-| Tier | Action |
-|------|--------|
-| **BLOCK** | Fix immediately — high-confidence exploitable vulnerability |
-| **WARN** | Fix before merge — likely real issue |
-| **INFO** | Review and decide — may be intentional |
-
-Suppress known issues with `# noaudit` comment or `.agent-audit.yaml` configuration.
-
----
-
-## ⚙️ Configuration | 配置
-
-Create `.agent-audit.yaml` to customize scanning:
-
-```yaml
-# Allowed network hosts
-allowed_hosts:
-  - "*.internal.company.com"
-  - "api.openai.com"
-
-# Ignore rules
-ignore:
-  - rule_id: AGENT-003
-    paths:
-      - "auth/**"
-    reason: "Auth module legitimately communicates externally"
-
-# Scan settings
+# .agent-audit.yaml
 scan:
-  exclude:
-    - "tests/**"
-    - "venv/**"
+  exclude: ["tests/**", "venv/**"]
   min_severity: low
   fail_on: high
+
+ignore:
+  - rule_id: AGENT-003
+    paths: ["auth/**"]
+    reason: "Auth module legitimately communicates externally"
+
+allowed_hosts:
+  - "api.openai.com"
 ```
 
-## 📈 Baseline Scanning | 基线扫描
+## Comparison with Existing Tools
 
-Track new findings incrementally:
+| Capability | agent-audit | Bandit | Semgrep |
+|-----------|:-----------:|:-----:|:-------:|
+| Agent-specific threat model (OWASP Agentic Top 10) | Yes | No | No |
+| MCP configuration auditing | Yes | No | No |
+| Tool-boundary taint analysis | Yes | No | No |
+| `@tool` decorator awareness | Yes | No | No |
+| Semantic credential detection | Yes | Basic | Basic |
+| General Python security | Partial | Yes | Yes |
+| Multi-language support | Python-focused | Python | Multi |
 
-```bash
-# Save current findings as baseline
-agent-audit scan . --save-baseline baseline.json
+agent-audit is **complementary** to general-purpose SAST tools. It targets the security gap specific to AI agent applications that existing tools cannot address.
 
-# Only report NEW findings
-agent-audit scan . --baseline baseline.json
-```
+## Limitations
 
-## 📖 CLI Reference | 命令行参考
+- **Static analysis only**: Does not execute code; cannot detect runtime logic vulnerabilities.
+- **Intra-procedural taint analysis**: Tracks data flow within functions; no cross-function or cross-module tracking yet.
+- **Python-focused**: Primary support for Python source and MCP JSON configs. Limited pattern matching for other languages.
+- **Framework coverage**: Deep support for LangChain, CrewAI, AutoGen, AgentScope. Other frameworks use generic `@tool` detection rules.
+- **False positives**: Mitigated through semantic analysis, framework detection, and allowlists; ongoing optimization (79% FP reduction in v0.16).
 
-```
-Usage: agent-audit [OPTIONS] COMMAND [ARGS]...
+## Documentation
 
-Commands:
-  scan     Scan agent code and configurations
-  inspect  Inspect an MCP server at runtime
-  init     Initialize configuration file
+- [Technical Specification](docs/SECURITY-ANALYSIS-SPECIFICATION.md) — Detection methodology and analysis pipeline
+- [Benchmark Results](docs/BENCHMARK-RESULTS.md) — Detailed Agent-Vuln-Bench evaluation
+- [Competitive Comparison](docs/COMPETITIVE-COMPARISON.md) — Three-tool analysis vs Bandit and Semgrep
+- [Rule Reference](docs/RULES.md) — Complete rule catalog with CWE mappings and remediation
+- [Architecture](docs/ARCHITECTURE.md) — Internal design and extension points
+- [CI/CD Integration](docs/CI-INTEGRATION.md) — GitHub Actions, GitLab CI, Jenkins, Azure DevOps
 
-Options:
-  --version   Show version
-  -v          Enable verbose output
-  -q          Only show errors
-  --help      Show this message
-```
-
----
-
-## 📚 Documentation | 文档
-
-| Document | Description |
-|----------|-------------|
-| **[Rule Reference](docs/RULES.md)** | All 40 rules with CWE mapping, fix guidance, code examples |
-| **[CI/CD Integration](docs/CI-INTEGRATION.md)** | GitHub Actions, GitLab CI, Jenkins, Azure DevOps |
-| **[API Stability](docs/STABILITY.md)** | What interfaces you can depend on |
-| **[Architecture](docs/ARCHITECTURE.md)** | Internal design and extension points |
-| **[Contributing](CONTRIBUTING.md)** | Development setup and PR guidelines |
-
----
-
-## 🛠️ Development | 开发
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full setup instructions.
+## Development
 
 ```bash
 git clone https://github.com/HeadyZhang/agent-audit
 cd agent-audit/packages/audit
 poetry install
-poetry run pytest ../../tests/ -v
+poetry run pytest ../../tests/ -v  # 1142 tests
 ```
 
-## 📄 License
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and PR guidelines.
 
-MIT License — see [LICENSE](LICENSE) for details.
+## Citation
 
-## 🙏 Acknowledgments
+If you use agent-audit in your research, please cite:
 
-- [OWASP Agentic Security Top 10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
-- The AI agent security research community
+```bibtex
+@software{agent_audit_2026,
+  author = {Zhang, Haiyue},
+  title = {Agent Audit: Static Security Analysis for AI Agent Applications},
+  year = {2026},
+  url = {https://github.com/HeadyZhang/agent-audit},
+  note = {Based on OWASP Agentic Top 10 (2026) threat model}
+}
+```
 
----
+## Acknowledgments
 
-<p align="center">
-  <strong>Built for the AI agent security community</strong><br>
-  <a href="https://github.com/HeadyZhang/agent-audit/issues">Report Bug</a> · <a href="https://github.com/HeadyZhang/agent-audit/issues">Request Feature</a> · <a href="docs/RULES.md">Browse Rules</a>
-</p>
+- [OWASP Agentic Top 10 for 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
+- [CWE Top 25](https://cwe.mitre.org/top25/)
+
+## License
+
+MIT — see [LICENSE](LICENSE).
